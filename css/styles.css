@@ -1,0 +1,466 @@
+/* Chrono — bold, colorful, minimal.
+   Each screen is a full-bleed colour field. Huge condensed numerals (Anton),
+   clean labels (Archivo), white pill buttons. Content is stripped to the bone.
+
+   RULE: no LOOPING motion on a measurement screen — no pulses or spinners; any
+   loop is a metronome. Finite one-shot sequences are allowed: the reaction lights
+   fill once and go dark instantly (no transition softens the GO edge). One-shot
+   entrances live only where timing is over: landing, the per-round result, and the
+   final results (see "Entrances"). */
+
+:root {
+  --blue:   #3121FF;   /* round 1 + the Perfect screen */
+  --pink:   #FF2D8B;   /* round 2 */
+  --purple: #7A3CFF;   /* rounds 3 & 4 */
+  --brain:  #FE2E8A;   /* round 5 (brain game) */
+  --perfect: #0B8CFF;  /* the Perfect screen base */
+  --lime:   #C6FF3A;   /* results total accent */
+  --ink:    #0B0B12;
+  --white:  #FFFFFF;
+
+  /* Result-screen band colours (perfect rides the blue Perfect screen). */
+  --green:  #27BF46;   /* offset < 20cs */
+  --yellow: #F79B1B;   /* offset 20–49cs */
+  --red:    #FF4A21;   /* offset 50cs+  */
+
+  --screen-bg: var(--blue);
+  --on-bg: #ffffff;
+
+  --display: 'Squada One', 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --maxw: 620px;
+
+  /* Strong ease-out for UI (the built-in one is too weak). One curve, shared. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--screen-bg);
+  color: var(--on-bg);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 180ms ease; /* between-screen colour change, not a loop */
+}
+@media (prefers-reduced-motion: reduce) { html, body { transition: none; } }
+
+#app {
+  min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.round-screen {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; touch-action: manipulation;
+}
+
+.screen {
+  width: 100%; max-width: var(--maxw);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 28px;
+}
+
+/* --- Type ---------------------------------------------------------------- */
+.label {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(15px, 4.5vw, 20px);
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  margin: 0;
+}
+.kicker {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin: 0;
+}
+.hero {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(96px, 32vw, 200px);
+  line-height: 0.82;
+  letter-spacing: 0.01em;
+  margin: 0;
+  font-feature-settings: "tnum" 1;
+}
+.hero.sm { font-size: clamp(72px, 22vw, 150px); }
+.wordmark {
+  font-family: var(--display);
+  font-size: clamp(80px, 26vw, 170px);
+  line-height: 0.84;
+  margin: 0;
+  letter-spacing: 0.005em;
+}
+.prompt {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(20px, 6vw, 30px);
+  line-height: 1.1;
+  margin: 0;
+  max-width: 14ch;
+}
+.sub { font-family: var(--sans); font-weight: 600; font-size: 15px; opacity: 0.8; margin: 0; }
+
+/* --- The stage: one 3-zone layout for every round screen ----------------- *
+   Top counter (.rk), vertically-centred content (.mid), bottom hint (.hint).
+   .rk and .hint are pinned to the viewport so .mid always sits dead-centre. */
+.stage { position: relative; }
+.rk {
+  position: fixed; top: max(24px, env(safe-area-inset-top)); left: 0; right: 0;
+  margin: 0; text-align: center;
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(13px, 2.4vw, 16px); letter-spacing: 0.25em;
+  opacity: 0.9;
+}
+.mid {
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(10px, 2vh, 20px); width: 100%;
+}
+.hint {
+  position: fixed; bottom: max(28px, env(safe-area-inset-bottom)); left: 0; right: 0;
+  margin: 0; text-align: center;
+  font-family: var(--sans); font-weight: 500;
+  font-size: clamp(16px, 2.4vw, 22px); opacity: 0.95;
+}
+.hint .key { font-weight: 600; letter-spacing: 0.35em; }
+.hint .key::before { content: "[ "; letter-spacing: normal; }
+.hint .key::after  { content: "]"; letter-spacing: normal; }
+
+/* The friendly sentence-case line above a big value. */
+.cue {
+  font-family: var(--sans); font-weight: 500;
+  font-size: clamp(20px, 4vw, 28px); line-height: 1.1;
+  margin: 0; opacity: 0.96;
+}
+.cue.tiny { font-size: clamp(14px, 2.4vw, 17px); opacity: 0.8; }
+
+/* Display-font intro line (round 3 & 5 prompts). */
+.prompt-xl {
+  font-family: var(--display); font-weight: 400;
+  font-size: clamp(40px, 9vw, 88px); line-height: 0.98;
+  letter-spacing: 0.01em; margin: 0; max-width: 14ch;
+}
+
+/* Word-shaped hero values ("Running") need to fit their width, unlike digits. */
+.hero.word { font-size: clamp(64px, 16vw, 132px); }
+
+/* The Perfect screen — a comic-book burst: a cyan core fading to deep blue,
+   navy speed-line rays, and a halftone dot texture. Counter and hint keep the
+   stage's pinned top/bottom; .mid and the burst layers get an explicit z-order. */
+.perfect .rk, .perfect .hint { z-index: 1; }
+.perfect-burst {
+  position: fixed; left: 50%; top: 100%;    /* rays converge at bottom-centre */
+  width: 300vmax; height: 300vmax;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  background:
+    /* sparse navy rays (~24) — very low contrast so it reads as a gentle backdrop */
+    repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 12deg, rgba(8,26,110,0.13) 12deg 15deg),
+    /* faint light wedges, offset between the rays */
+    repeating-conic-gradient(from 7.5deg at 50% 50%, rgba(170,225,255,0.04) 0deg 5deg, transparent 5deg 15deg),
+    /* bright cyan-tinted core → vivid blue glow */
+    radial-gradient(circle at 50% 50%, #7BE0FF 0%, #3FA0FF 34%, #1C7DFB 66%, #0B5EEF 100%);
+}
+.perfect .mid { position: relative; z-index: 1; }
+.hero.perfect-word { font-size: clamp(80px, 20vw, 200px); line-height: 0.9; }
+
+/* Transparent full-screen tap layer (begin / stop / advance by tapping). */
+.tapzone { position: fixed; inset: 0; background: transparent; border: 0; cursor: pointer; }
+
+/* Landing --------------------------------------------------------------- */
+.landing { gap: clamp(28px, 5vh, 44px); }
+.prompt.lead {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(24px, 5.2vw, 40px);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  max-width: 20ch;
+  opacity: 0.95;
+}
+.landing-foot {
+  position: fixed; left: 0; right: 0; bottom: max(28px, env(safe-area-inset-bottom));
+  margin: 0; text-align: center;
+  font-family: var(--display);
+  font-size: clamp(14px, 2.4vw, 18px);
+  letter-spacing: 0.14em;
+  opacity: 0.85;
+}
+.landing-foot .dot { opacity: 0.5; margin: 0 0.3em; }
+
+/* --- Buttons ------------------------------------------------------------- */
+.btn {
+  font-family: var(--display);
+  font-size: clamp(22px, 6vw, 30px);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--white);
+  border: 0;
+  border-radius: 999px;
+  padding: 18px 56px;
+  cursor: pointer;
+  min-width: 220px;
+  line-height: 1;
+  transition: transform 140ms var(--ease-out);
+}
+/* Press feedback is one-shot response to the user's own tap — not a period.
+   Instant-ish on the way down, eased back on release (the transition above). */
+.btn:active { transform: translateY(2px) scale(0.985); transition-duration: 70ms; }
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover { transform: translateY(-1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
+  .btn:hover { transform: none; }
+}
+/* Landing START: white pill inside a white ring with a coloured gap (mockup). */
+.btn.ring { box-shadow: 0 0 0 6px var(--screen-bg), 0 0 0 8px var(--white); }
+.btn.ghost {
+  background: transparent;
+  color: var(--on-bg);
+  border: 2px solid currentColor;
+  opacity: 0.85;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 12px 26px;
+  min-width: 0;
+}
+.testlink {
+  background: none; border: 0; cursor: pointer;
+  color: var(--on-bg); opacity: 0.6;
+  font-family: var(--sans); font-weight: 700; font-size: 13px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 8px;
+}
+
+/* --- Full-viewport tap target (rounds 1 & 2) ----------------------------- */
+.tap {
+  position: fixed; inset: 0;
+  width: 100vw; height: 100dvh;
+  border: 0; background: var(--screen-bg); color: var(--on-bg);
+  font-family: var(--sans);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px; cursor: pointer;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+.tap .state {
+  font-family: var(--display);
+  font-size: clamp(72px, 22vw, 150px);
+  line-height: 0.85;
+}
+.tap .kicker { position: absolute; top: 28px; left: 0; right: 0; }
+.tap #face { display: flex; flex-direction: column; gap: 22px; }
+.tap #face .label { opacity: 0.85; }
+
+/* --- Numeric guess input (rounds 3, 5) ------------------------------------ */
+.guess { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+.guess input {
+  font-family: var(--display);
+  font-size: clamp(56px, 18vw, 110px);
+  text-align: center;
+  color: var(--ink);
+  background: var(--white);
+  border: 0; border-radius: 18px;
+  padding: 8px 8px; width: 100%; max-width: 420px;
+  line-height: 1;
+}
+.guess input:focus-visible { outline: 4px solid rgba(255,255,255,0.6); outline-offset: 4px; }
+.fmthint { font-family: var(--sans); font-weight: 600; font-size: 13px; opacity: 0.7; margin: 0; }
+
+/* --- Round 4 — reaction lights --------------------------------------------
+   Five lights fill one at a time (a one-shot pop, not a loop — see the file
+   header). Going dark is the measurement edge: an instant class swap with NO
+   transition, so nothing softens or telegraphs the moment. */
+.lights { display: flex; gap: clamp(12px, 3vw, 20px); justify-content: center; }
+.light {
+  width: clamp(34px, 9vw, 54px); height: clamp(34px, 9vw, 54px);
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 3px solid rgba(255,255,255,0.4);
+}
+.light.on {
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 22px 4px rgba(255,74,33,0.55);
+}
+.lights.out .light { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.4); box-shadow: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .light.on { animation: pop 200ms var(--ease-out) both; }
+}
+
+/* --- Round 5 options ----------------------------------------------------- */
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; max-width: 460px; }
+.option {
+  position: relative;
+  font-family: var(--display);
+  font-size: clamp(34px, 10vw, 56px);
+  color: var(--ink);
+  background: var(--white);
+  border: 0; border-radius: 18px;
+  padding: 22px 0; cursor: pointer; line-height: 1;
+  transition: transform 140ms var(--ease-out);
+}
+.option:active { transform: translateY(2px) scale(0.985); transition-duration: 70ms; }
+@media (hover: hover) and (pointer: fine) {
+  .option:hover { transform: translateY(-1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .option { transition: none; }
+  .option:hover { transform: none; }
+}
+.okey {
+  position: absolute; top: 8px; left: 10px;
+  font-family: var(--sans); font-weight: 800; font-size: 12px;
+  color: var(--ink); opacity: 0.4;
+}
+
+/* --- Results (must fit one viewport, no scroll) -------------------------- */
+/* Sizes are viewport-height aware so the whole card fits without scrolling. */
+.results { gap: clamp(6px, 1.7vh, 18px); max-height: 100dvh; justify-content: center; }
+.results .total {
+  font-size: clamp(48px, 13vh, 100px);
+  color: var(--lime);
+  display: inline-flex; align-items: baseline; gap: 10px; justify-content: center;
+}
+.results .total .off {
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(12px, 2.2vh, 18px); color: var(--white); opacity: 0.55;
+}
+.grid-glyphs { font-size: clamp(26px, 5.2vh, 52px); letter-spacing: 6px; line-height: 1; }
+.breakdown { width: 100%; max-width: 460px; border-collapse: collapse; font-family: var(--sans); font-size: clamp(12px, 1.7vh, 15px); }
+.breakdown td { padding: clamp(4px, 1vh, 10px) 6px; border-bottom: 1px solid rgba(255,255,255,0.14); text-align: left; font-weight: 600; }
+.breakdown td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 800; }
+.breakdown td .g { font-size: 1.1em; }
+.stats { display: flex; gap: clamp(20px, 6vw, 34px); justify-content: center; flex-wrap: wrap; }
+.stat .k { font-family: var(--sans); font-weight: 700; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.6; }
+.stat .v { font-family: var(--display); font-size: clamp(24px, 4.6vh, 40px); line-height: 1; margin-top: 4px; }
+.bias { font-family: var(--sans); font-weight: 700; font-size: clamp(13px, 1.8vh, 15px); opacity: 0.8; margin: 0; }
+.btnrow { display: flex; gap: 18px; width: 100%; max-width: 460px; }
+.btnrow .btn { flex: 1; min-width: 0; padding: clamp(12px, 1.8vh, 16px) 8px; font-size: clamp(18px, 2.6vh, 26px); }
+.btn.alt { background: transparent; color: var(--white); border: 2px solid rgba(255,255,255,0.4); }
+/* Daily lock: today's puzzle is spent. Occupies PLAY AGAIN's slot as a static,
+   non-interactive plate — dashed border reads "unavailable" without a tooltip.
+   The clock ticks (results screen only; nothing here is being timed). */
+.btn.locked {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  background: transparent; color: var(--white);
+  border: 2px dashed rgba(255,255,255,0.3);
+  opacity: 0.72; cursor: default; transform: none;
+}
+.btn.locked:hover, .btn.locked:active { transform: none; }
+.btn.locked .lk {
+  font-family: var(--sans); font-weight: 800; font-size: 10px;
+  letter-spacing: 0.14em; opacity: 0.75;
+}
+.btn.locked .cd { font-variant-numeric: tabular-nums; letter-spacing: 0.03em; }
+.links { display: flex; gap: 22px; justify-content: center; }
+
+/* --- Toast --------------------------------------------------------------- */
+.toast {
+  position: fixed; left: 50%; bottom: 34px;
+  background: var(--ink); color: var(--white);
+  font-family: var(--display); font-size: 20px; letter-spacing: 0.06em;
+  padding: 12px 30px; border-radius: 999px; z-index: 50;
+  /* Enters and exits the same way (up from the bottom). Transition, not
+     keyframes, so a second COPY retargets instead of restarting. */
+  opacity: 0; visibility: hidden;
+  transform: translateX(-50%) translateY(10px);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out),
+              visibility 0s linear 200ms;
+}
+.toast.show {
+  opacity: 1; visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out),
+              visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.show { transform: translateX(-50%); transition-property: opacity, visibility; }
+}
+
+/* --- Mute toggle ----------------------------------------------------------
+   Lives outside #app so it survives every screen swap. A plain state icon,
+   never a countdown or clock, so it's safe on measurement screens too. */
+.mute-toggle {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+  z-index: 60;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.14);
+  border: 0; border-radius: 50%;
+  color: var(--on-bg);
+  font-size: 16px; line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+.mute-toggle:active { transform: scale(0.9); }
+.mute-toggle.is-muted { opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .mute-toggle { transition: none; } }
+
+:focus-visible { outline: 4px solid rgba(255,255,255,0.7); outline-offset: 4px; }
+
+/* --- Entrances ----------------------------------------------------------- *
+   These reveals are ONE-SHOT and fire on mount. The hard rule stands: a
+   MEASUREMENT screen (the hold rounds, the "Running" guesses, round 5's
+   equation/guess) never animates — a period there would hand the player a
+   reference. Motion only runs where timing is over: the landing, the per-round
+   result, and the final results. The lone loop — the Perfect sunburst — is a
+   result screen, so a spin there leaks nothing. */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pop  { from { opacity: 0; transform: scale(0.92);      } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+/* Perfect screen: the burst rays rotate slowly (a result screen — no timing left
+   to leak). The text is static. */
+@keyframes spin { from { transform: translate(-50%,-50%) rotate(0deg); }
+                  to   { transform: translate(-50%,-50%) rotate(360deg); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Perfect: the burst fades in and rotates slowly. */
+  .perfect-burst { animation: fade 600ms ease-out both, spin 50s linear infinite; }
+
+  /* Landing: the wordmark and its supporting lines rise in, gently staggered. */
+  .enter > * { animation: rise 460ms var(--ease-out) both; }
+  .enter > *:nth-child(1) { animation-delay: 40ms; }
+  .enter > *:nth-child(2) { animation-delay: 100ms; }
+  .enter > *:nth-child(3) { animation-delay: 160ms; }
+  .enter > *:nth-child(4) { animation-delay: 220ms; }
+  .enter > *:nth-child(5) { animation-delay: 280ms; }
+
+  /* Per-round result: the copy rises, the score pops under it. Feedback on a
+     completed round, not a live clock. */
+  .reveal .cue  { animation: rise 380ms var(--ease-out) both; }
+  .reveal .hero { animation: pop  460ms var(--ease-out) both; animation-delay: 70ms; }
+
+  /* Results: the score lands first (pop), then the card assembles under it. */
+  .results > * { animation: rise 500ms var(--ease-out) both; }
+  .results > *:nth-child(1) { animation-delay: 20ms; }
+  .results > *:nth-child(2) { animation-delay: 70ms; }
+  .results > *:nth-child(3) { animation-delay: 115ms; }
+  .results > *:nth-child(4) { animation-delay: 160ms; }
+  .results > *:nth-child(5) { animation-delay: 205ms; }
+  .results > *:nth-child(6) { animation-delay: 250ms; }
+  .results > *:nth-child(7) { animation-delay: 295ms; }
+  .results > *:nth-child(8) { animation-delay: 340ms; }
+  .results .total { animation: pop 560ms var(--ease-out) both; animation-delay: 40ms; }
+}
+
+/* Reduced motion: keep the reveal as comprehension, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .enter, .reveal, .results { animation: fade 240ms ease both; }
+  .perfect-burst { animation: fade 400ms ease both; } /* no rotation */
+}

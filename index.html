@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3121FF" />
+  <title>Krono</title>
+  <meta name="description" content="A daily game: five challenges to test your intuition of time. One shot each, same five for everyone, resets at midnight UTC." />
+
+  <!-- Icons. The favicon is an inline SVG (no asset request); iOS ignores SVG for
+       apple-touch-icon, so the home-screen icon is a real 180px PNG. -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='38' fill='%233121FF'/><rect x='74' y='16' width='32' height='14' rx='5' fill='%23fff'/><rect x='84' y='27' width='12' height='19' fill='%23fff'/><circle cx='90' cy='104' r='52' fill='none' stroke='%23fff' stroke-width='13'/><path d='M90 104V74M90 104h24' stroke='%23fff' stroke-width='12' stroke-linecap='round' fill='none'/></svg>" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+  <!-- Link previews (iMessage / Slack / Discord). Text-only for now — no og:image. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Krono" />
+  <meta property="og:title" content="Krono — the daily time game" />
+  <meta property="og:description" content="Five challenges to test your intuition of time. One shot, once a day. How many seconds were you off?" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Krono — the daily time game" />
+  <meta name="twitter:description" content="Five challenges to test your intuition of time. One shot, once a day. How many seconds were you off?" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Squada+One&family=Archivo:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <button id="mute" class="mute-toggle" aria-label="Mute sound and haptics" type="button">🔊</button>
+  <script type="module" src="js/app.js?v=4"></script>
+</body>
+</html>

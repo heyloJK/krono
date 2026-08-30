@@ -1,0 +1,6 @@
+.DS_Store
+
+# Vendored third-party skills. Restorable from skills-lock.json, and not ours to
+# redistribute — the manifest is tracked, the copies are not.
+.agents/skills/
+.claude/skills/
