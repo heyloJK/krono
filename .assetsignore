@@ -1,0 +1,10 @@
+# Repo files that are not part of the website. Everything else in this folder
+# gets published, so anything added here should be deliberate.
+.assetsignore
+.gitignore
+wrangler.jsonc
+README.md
+serve.py
+skills-lock.json
+.claude/
+.agents/

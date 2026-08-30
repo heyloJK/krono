@@ -1,0 +1,11 @@
+{
+  // Static-only Worker: no server code, just the files in this folder.
+  // `wrangler deploy` cannot auto-detect the site because the site IS the repo
+  // root (it looks for public/, dist/, build/ and finds none), so point it here
+  // explicitly. `name` must match the Cloudflare project name.
+  "name": "krono",
+  "compatibility_date": "2026-08-30",
+  "assets": {
+    "directory": "./"
+  }
+}
