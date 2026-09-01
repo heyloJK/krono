@@ -87,7 +87,7 @@ same UTC date get identical targets, durations, equations, reaction holds, and
 deadlines. `Math.random()` is never used in generation.
 
 > **Puzzle number** counts days since `LAUNCH_EPOCH` in `js/dates.js` — currently
-> `2026-08-30` (= #1), the friends-testing deploy date. Moving the epoch shifts every
+> `2026-09-01` (= #1), the friends-testing deploy date. Moving the epoch shifts every
 > puzzle number and nothing else, so set it to the real public launch date when there
 > is one. Dates before the epoch are zero/negative; that's expected.
 

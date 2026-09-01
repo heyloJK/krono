@@ -3,7 +3,7 @@
 
 // Day one. Moving this shifts every puzzle number and nothing else — set it to
 // the real public launch date when there is one.
-export const LAUNCH_EPOCH = '2026-08-30'; // Puzzle #1 (friends-testing deploy).
+export const LAUNCH_EPOCH = '2026-09-01'; // Puzzle #1 (friends-testing deploy).
 
 // Current UTC date as "YYYY-MM-DD".
 export function todayUTC(now = new Date()) {
