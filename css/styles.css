@@ -26,11 +26,19 @@ html {
   scrollbar-color: var(--figure-dim) transparent;
 }
 
+/* A field and its text colour travel together. `.on-dark` fields (blue,
+   purple, the surface) take the light figure; `.on-light` fields (green,
+   orange, red, pink, the Perfect burst) take ink. Nothing below names a text
+   colour directly — it reads --on-field — so a field can never be paired with
+   type it fails contrast against. */
+body.on-dark  { --on-field: var(--figure); }
+body.on-light { --on-field: var(--ink); }
+
 body {
   margin: 0;
   min-height: 100%;
   background: var(--screen-bg, var(--surface));
-  color: var(--figure);
+  color: var(--on-field);
   font-family: var(--face);
   font-weight: var(--w-normal);
   -webkit-font-smoothing: antialiased;
@@ -39,7 +47,7 @@ body {
      gave a player a 180ms reference on the way into a round. */
 }
 
-::selection { background: var(--figure); color: var(--surface); }
+::selection { background: var(--on-field); color: var(--screen-bg, var(--surface)); }
 
 /* No blue flash on iOS. Every control below defines its own press state. */
 * { -webkit-tap-highlight-color: transparent; }
@@ -93,11 +101,6 @@ body {
 */
 .stage {
   --slot-chrome: var(--s7);
-  /* Fixed air above the lead line, so the measurement sits near the optical
-     centre of the field rather than crowding the top edge. Viewport-relative
-     but CONSTANT for a given device, which is what the round family needs: the
-     figure lands on the same y in all five rounds and on the landing. */
-  --slot-rise: 18dvh;
   --slot-lead: var(--s7);
   --slot-figure: calc(var(--t-hero) * var(--lead-solid));
 
@@ -108,15 +111,29 @@ body {
      chrome under the home indicator. */
   flex: 1;
   display: grid;
+  /* The slack is split ABOVE and BELOW the content, not dumped at the bottom.
+     With it all below, an intro screen with no measurement left its copy in the
+     top third over 500px of dead field. Both 1fr rows are equal, so the
+     lead/figure/note block sits at the optical centre — and because the lead
+     and figure slots are FIXED, rounds 1, 2 and 4 still place "Stop at" and
+     their target on the identical pixel row as each other. */
   grid-template-rows:
     var(--slot-chrome)
-    var(--slot-rise)
+    1fr
     var(--slot-lead)
     var(--slot-figure)
+    auto
     1fr
     var(--slot-chrome);
   justify-items: center;
 }
+
+/* A screen with no measurement — the round 3 and round 5 intros. Collapsing
+   the figure slot closes the 144px hole that opened between the copy and the
+   note when nothing was there to fill it. Applied automatically by stage()
+   whenever the figure slot is empty. */
+.stage.intro { --slot-figure: 0px; }
+.stage.intro .note { margin-top: var(--s6); }
 
 /* The counter sits at the LEFT end of the top chrome row, with the sound
    toggle at the right end — two ends of one header line, which is also where
@@ -175,7 +192,7 @@ body {
 .note p { margin: 0; }
 
 .hint {
-  grid-row: 6;
+  grid-row: 7;
   align-self: end;
   margin: 0;
   font-size: var(--t-body);
@@ -217,8 +234,18 @@ body {
   letter-spacing: var(--track-figure);
 }
 
-/* A terse note under the figure. The instrument's voice: a reading, not an
-   opinion about it. */
+/* Round 4's post-round line — the only place the day's bias is ever stated,
+   and the whole tutorial for that round. Sentence case, because it is a
+   sentence; the tracked uppercase note-line below is for labels. */
+.drift {
+  font-size: var(--t-body);
+  text-wrap: balance;
+  font-weight: var(--w-normal);
+  line-height: var(--lead-text);
+  max-width: 26ch;
+}
+
+/* A tracked label under the figure — the unit, and the short state lines. */
 .note-line {
   font-size: var(--t-label);
   font-weight: var(--w-bold);
@@ -229,6 +256,49 @@ body {
 /* The landing is a stage too — same five rows, same chrome positions. The
    wordmark occupies the figure row, so KRONO sits exactly where every round's
    measurement will sit. Six surfaces, one layout, no landing-specific CSS. */
+
+/* ==========================================================================
+   The Perfect screen
+   ==========================================================================
+   A dead-zero offset. The rarest outcome in the game, so it keeps its own
+   field: a cyan core fading out to deep blue, with sparse navy speed-line rays
+   over it. Restored at the designer's request after I had cut it.
+
+   The type is INK, not the white the old build used. Measured across the part
+   of the gradient the viewport actually shows, white runs 1.51:1 at the core
+   and 2.73:1 a third of the way out; ink runs 13.03 and 7.18. The burst is
+   unchanged — it is the same five stops — it just carries legible type now.
+
+   MOTION: the burst fades and swings in ONCE and then holds. It is the single
+   place in the product where anything moves on a round screen, and it is here
+   only because the designer asked for the screen back in full. It is a long,
+   heavily-eased, one-shot event on a terminal screen rather than a crisp
+   repeatable cue, which makes it a poor reference to entrain to — but it is an
+   exception to the rule, not an application of it. If round scores ever start
+   drifting after a Perfect, this is the first thing to delete. */
+/* Lift the content above the burst. The burst itself must be EXCLUDED: this
+   selector out-specifies `.perfect-burst`, so without the :not() it overrides
+   `position: fixed` and the burst becomes a 300vmax block in the grid flow
+   that swallows the whole screen. */
+.stage.perfect > *:not(.perfect-burst) {
+  position: relative;
+  z-index: var(--z-chrome);
+}
+.perfect-burst {
+  position: fixed;
+  left: 50%; top: 100%;            /* the rays converge at bottom-centre */
+  width: 300vmax; height: 300vmax;
+  transform: translate(-50%, -50%);
+  z-index: var(--z-base);
+  background:
+    repeating-conic-gradient(from 0deg at 50% 50%,
+      transparent 0deg 12deg, var(--burst-ray) 12deg 15deg),
+    repeating-conic-gradient(from 7.5deg at 50% 50%,
+      var(--burst-wedge) 0deg 5deg, transparent 5deg 15deg),
+    radial-gradient(circle at 50% 50%,
+      var(--burst-core) 0%, var(--burst-1) 34%,
+      var(--burst-2) 66%, var(--burst-edge) 100%);
+}
 
 /* ==========================================================================
    Controls — one implementation per job
@@ -248,7 +318,14 @@ body {
   padding-left: calc(var(--s7) + var(--track-label));
   padding-right: var(--s7);
   padding-block: var(--s4);
-  color: var(--surface);
+  /* A control is its OWN surface, not a knockout of the field: a white plate
+     with ink on it, which is 19.6:1 whatever field it sits on. That is also the
+     original design — white pills and white answer cards.
+     --on-field governs type sitting DIRECTLY on the field (the counter, the
+     hint, the figure); a control does not inherit it, because a control brings
+     its own background. The two are separate decisions and were briefly, and
+     wrongly, the same one. */
+  color: var(--ink);
   background: var(--figure);
   border: var(--border-w) solid var(--figure);
   border-radius: var(--r-pill);
@@ -262,13 +339,17 @@ body {
   transition: background-color var(--dur-state) var(--ease),
               color var(--dur-state) var(--ease);
 }
-.btn:active { background: transparent; color: var(--figure); transition: none; }
-.btn.alt { background: transparent; color: var(--figure); }
-.btn.alt:active { background: var(--figure); color: var(--surface); }
+/* Pressed: the plate empties out and the label joins the field. */
+.btn:active {
+  background: transparent; color: var(--on-field);
+  border-color: var(--on-field); transition: none;
+}
+.btn.alt { background: transparent; color: var(--on-field); border-color: var(--on-field); }
+.btn.alt:active { background: var(--figure); color: var(--ink); border-color: var(--figure); }
 
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover { background: transparent; color: var(--figure); }
-  .btn.alt:hover { background: var(--figure); color: var(--surface); }
+  .btn:hover { background: transparent; color: var(--on-field); border-color: var(--on-field); }
+  .btn.alt:hover { background: var(--figure); color: var(--ink); border-color: var(--figure); }
 }
 
 /* A text-weight action. Same type as the chrome, so it reads as chrome. */
@@ -276,7 +357,7 @@ body {
   background: none;
   border: 0;
   cursor: pointer;
-  color: var(--figure);
+  color: var(--on-field);
   font-family: var(--face);
   font-size: var(--t-label);
   font-weight: var(--w-bold);
@@ -292,7 +373,7 @@ body {
    visible on a white button as well as on a colour field. Never the UA
    default. */
 :focus-visible {
-  outline: var(--border-w) solid var(--figure);
+  outline: var(--border-w) solid var(--on-field);
   outline-offset: var(--s1);
   box-shadow: 0 0 0 var(--s1) var(--screen-bg, var(--surface));
 }
@@ -322,7 +403,7 @@ body {
   letter-spacing: var(--track-figure);
   line-height: var(--lead-solid);
   text-align: right;
-  color: var(--surface);
+  color: var(--ink);
   background: var(--figure);
   border: 0;
   border-radius: var(--r-field);
@@ -331,7 +412,7 @@ body {
   width: 100%;
   max-width: 9ch;
 }
-.entry::placeholder { color: var(--surface); opacity: 0.28; }
+.entry::placeholder { color: var(--ink); opacity: 0.28; }
 
 .fmt {
   font-size: var(--t-label);
@@ -367,7 +448,7 @@ body {
   font-variation-settings: 'wdth' var(--width-figure);
   font-variant-numeric: tabular-nums;
   line-height: var(--lead-solid);
-  color: var(--surface);
+  color: var(--ink);
   background: var(--figure);
   border: var(--border-w) solid var(--figure);
   border-radius: var(--r-field);
@@ -376,9 +457,13 @@ body {
   cursor: pointer;
   /* No transition. This press ends the timed interval. */
 }
-.option:active { background: transparent; color: var(--figure); }
+.option:active {
+  background: transparent; color: var(--on-field); border-color: var(--on-field);
+}
 @media (hover: hover) and (pointer: fine) {
-  .option:hover { background: transparent; color: var(--figure); }
+  .option:hover {
+    background: transparent; color: var(--on-field); border-color: var(--on-field);
+  }
 }
 .okey {
   position: absolute; top: var(--s2); left: var(--s3);
@@ -500,7 +585,8 @@ body {
   border-radius: var(--r-pill);
   background: var(--figure);
 }
-.cd-dot.on { background: var(--accent); }
+.cd-dot.near { background: var(--band-near); }
+.cd-dot.mid  { background: var(--band-mid); }
 /* There is no separate marker for a round that ran off the scale. `pegged` and
    "the dot is at the end of the track" are the SAME predicate — trackFraction
    clamps at exactly the threshold bandForErrorMs pegs at — so the bar that used
@@ -563,7 +649,7 @@ body {
   padding-left: calc(var(--s5) + var(--track-label));
   text-align: center;
 }
-.spent .when { color: var(--figure); font-variant-numeric: tabular-nums; }
+.spent .when { color: var(--on-field); font-variant-numeric: tabular-nums; }
 
 .links { display: flex; gap: var(--s4); }
 
@@ -582,8 +668,8 @@ body {
   left: 50%;
   bottom: max(var(--s6), env(safe-area-inset-bottom));
   z-index: var(--z-toast);
-  background: var(--figure);
-  color: var(--surface);
+  background: var(--on-field);
+  color: var(--screen-bg, var(--surface));
   font-size: var(--t-label);
   font-weight: var(--w-bold);
   letter-spacing: var(--track-label);
@@ -624,7 +710,7 @@ body {
   justify-content: center;
   background: none;
   border: 0;
-  color: var(--figure);
+  color: var(--on-field);
   font-family: var(--face);
   font-size: var(--t-label);
   font-weight: var(--w-bold);
@@ -647,8 +733,23 @@ body {
    not show anyone, and it also meant the score was the LAST thing to arrive on
    the screen whose entire content is the score. */
 @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
-
-.enter {
-  animation: appear var(--dur-view) var(--ease) both;
+/* The burst swings into place once and stops. It used to spin on an infinite
+   loop; a loop is a period, and that has no screen-by-screen exemption. */
+@keyframes burst-in {
+  from { transform: translate(-50%, -50%) rotate(-14deg); }
+  to   { transform: translate(-50%, -50%) rotate(0deg); }
 }
+
+.enter { animation: appear var(--dur-view) var(--ease) both; }
 .round-screen .enter { animation: none; }
+
+/* See the note on .perfect-burst: the documented exception. --dur-burst is
+   deliberately NOT one of the two UI durations — it is a one-off for this one
+   element, so nothing else can reach for it. */
+.perfect-burst {
+  animation: appear var(--dur-burst) ease-out both,
+             burst-in calc(var(--dur-burst) * 1.8) var(--ease) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .perfect-burst { animation: appear var(--dur-burst) ease-out both; }
+}

@@ -22,14 +22,16 @@ import { bandForErrorMs } from './scoring.js';
 // dashboard. One accent marks the rounds that landed; everything else is the
 // figure colour and is read by where it sits.
 export const TONES = {
-  on:      { name: 'on',      color: '#27BF46' },   // --accent
+  near:    { name: 'near',    color: '#27BF46' },   // --band-near
+  mid:     { name: 'mid',     color: '#F79B1B' },   // --band-mid
   neutral: { name: 'neutral', color: '#FFFFFF' },   // --figure
 };
 
-// perfect and green both mean "landed"; yellow and red both mean "read the
-// position". The band names themselves are scoring, and are untouched.
+// The same band language the app's result screens use, minus the far band:
+// a perfect round reads as near. The band names themselves are scoring, and
+// are untouched.
 const TONE_FOR_BAND = {
-  perfect: 'on', green: 'on', yellow: 'neutral', red: 'neutral',
+  perfect: 'near', green: 'near', yellow: 'mid', red: 'neutral',
 };
 
 // Card artwork version. The OG image is served `immutable` with a one-year
@@ -37,7 +39,7 @@ const TONE_FOR_BAND = {
 // image for a given result never changes on its own. That means a redesign
 // would otherwise never reach anyone holding a cached copy, so every URL that
 // points at a card carries this token. BUMP IT whenever the artwork changes.
-export const CARD_VERSION = 7;
+export const CARD_VERSION = 8;
 
 // A row's dot as a fraction of the axis track, 0 (fully early) to 1 (fully late).
 //

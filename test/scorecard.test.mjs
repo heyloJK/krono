@@ -69,7 +69,7 @@ test('perfect sits at centre and is never pegged', () => {
   for (const row of m.rows) {
     assert.equal(row.fraction, 0.5);
     assert.equal(row.pegged, false);
-    assert.equal(row.tone, 'on');
+    assert.equal(row.tone, 'near');
   }
 });
 
@@ -79,9 +79,15 @@ test('the card has exactly two tones, and neither is a failure state', () => {
   // Two, not four. A ramp of graded colours makes the card read as a status
   // dashboard; position already carries how far out a round was, so colour only
   // marks the good end. Anything added here is a second accent.
-  assert.deepEqual(Object.keys(TONES).sort(), ['neutral', 'on']);
-  assert.equal(TONES.on.color, '#27BF46', 'the accent, from tokens.css');
-  assert.equal(TONES.neutral.color, '#FFFFFF', 'the figure colour, from tokens.css');
+  assert.deepEqual(Object.keys(TONES).sort(), ['mid', 'near', 'neutral']);
+  assert.equal(TONES.near.color, '#27BF46', '--band-near, from tokens.css');
+  assert.equal(TONES.mid.color, '#F79B1B', '--band-mid, from tokens.css');
+  assert.equal(TONES.neutral.color, '#FFFFFF', '--figure, from tokens.css');
+  // The far band is deliberately absent: SHARE sends this card, and a red
+  // failure state is what the share must not carry. Position says how far out.
+  for (const tone of Object.values(TONES)) {
+    assert.notEqual(tone.color, '#FF4A21', 'the far band must not reach the card');
+  }
 });
 
 // --- Open Graph card -------------------------------------------------------
@@ -114,7 +120,7 @@ test('the OG card draws every mark — it never emits a glyph it cannot render',
   const perfect = cardModel({ ...MOCKUP, rounds: MOCKUP.rounds.map((x) => r(x.key, 0, true)) });
   const phtml = renderCardHTML(perfect);
   assert.ok(!phtml.includes('<img'), 'no image marker remains on a perfect round');
-  assert.equal((phtml.match(/#27BF46/g) || []).length, 5, 'five accent dots, one per round');
+  assert.equal((phtml.match(/#27BF46/g) || []).length, 5, 'five near-band dots, one per round');
 });
 
 test('the value column is set as figures, not as chrome', () => {

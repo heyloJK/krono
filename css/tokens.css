@@ -6,46 +6,72 @@
    because the next person to add one needs to know which rule they are breaking.
 
    Counts, before → after:
-     colour     33 → 8      type sizes  25 → 6      weights   5 → 2
+     colour     33 → 17     type sizes  25 → 6      weights   5 → 2
      spacing    19 → 8      radius       4 → 2      tracking 13 → 2
      durations   6 → 2      easings      2 → 1      shadows   1 → 0
 */
 
 :root {
   /* ---- Colour, named by role -------------------------------------------
-     Two field colours, not four. The old set had --pink #FF2D8B and --brain
-     #FE2E8A — one percent apart, indistinguishable, doing the same job. Both
-     are gone, and so is the green/yellow/red verdict triad: colour in this
-     product now says WHICH KIND OF ROUND you are in and nothing else. How far
-     out you were is the number, and on the card it is the dot's position.
+     Colour carries two meanings in Krono, and only these two:
 
-     The two survivors are also the only two that are legible. Measured against
-     solid white: blue 7.52:1, purple 5.36:1 — both clear 4.5:1 at any size.
-     Pink was 3.50:1 and red 3.36:1, green 2.43:1, yellow 2.17:1: white body
-     text on any of those failed at every size it was ever used at. That is why
-     they are gone rather than re-tuned — re-tuning would have changed the
-     palette, and dropping them did not. */
-  --surface:       #0B0B12;   /* the results ground, and the card's */
-  --field-produce: #3121FF;   /* rounds where YOU make the interval: 1, 2, 4 */
-  --field-judge:   #7A3CFF;   /* rounds where you READ an interval: 3, 5 */
-  --figure:        #FFFFFF;   /* every mark and label, on every background */
+       FIELD  which round you are in
+       BAND   how close the reading was
 
-  /* Secondary label. Only ever used on --surface, where it measures 10.2:1.
-     There is deliberately no dim token for the colour fields: on a field,
-     hierarchy is size and weight, never opacity. Ten white opacities collapse
-     to these two. */
-  --figure-dim:    rgba(255, 255, 255, 0.72);
+     Every value below was already in the build. What changed is that each one
+     now has exactly one job, one token, and a stated text colour to sit on.
 
-  /* The one accent. It marks a round that landed inside the tight band, on the
-     score card, and appears nowhere else. Kept from the existing --green. */
-  --accent:        #27BF46;
+     THE TEXT COLOUR IS PART OF THE TOKEN. The old build set white on every
+     field, and white measured 2.43:1 on green, 2.17:1 on orange, 3.36:1 on red
+     and 3.50:1 on pink — failing 4.5:1 at every size those fields were used at.
+     Ink on the same colours measures 8.06, 9.02, 5.84 and 5.60. So the bright
+     fields carry ink and the deep ones carry white, and no field is retuned:
+     the palette is exactly as it was, it is just legible now. */
+
+  --surface: #0B0B12;         /* the results ground, and the card's */
+  --figure:  #FFFFFF;         /* the light figure */
+  --ink:     #0B0B12;         /* the dark figure */
+
+  /* Fields — which round. */
+  --field-mark:  #3121FF;     /* rounds 1 and 2 */
+  --field-read:  #7A3CFF;     /* rounds 3 and 4 */
+  --field-split: #FF2D8B;     /* round 5. The old build had this AND #FE2E8A,
+                                 one percent apart, doing the same job. One
+                                 pink now. */
+
+  /* Bands — how close. The result field takes the band's colour. */
+  --band-near:    #27BF46;    /* offset under 20cs */
+  --band-mid:     #F79B1B;    /* 20-49cs */
+  --band-far:     #FF4A21;    /* 50cs and out */
+  --band-perfect: #0B8CFF;    /* dead zero. Its own screen. */
+
+  /* The Perfect burst: a cyan core fading out to deep blue, with navy rays.
+     Five blues, but they are five stops of ONE gradient, not five decisions. */
+  --burst-core: #7BE0FF;
+  --burst-1:    #3FA0FF;
+  --burst-2:    #1C7DFB;
+  --burst-edge: #0B5EEF;
+  --burst-ray:  rgba(8, 26, 110, 0.13);
+  --burst-wedge: rgba(170, 225, 255, 0.04);
+
+  /* Set per field by the .on-light / .on-dark classes; every rule below reads
+     --on-field rather than naming a colour, so a field and its type can never
+     be paired wrongly. */
+  --on-field: var(--figure);
+
+  /* Secondary label. Only used on --surface, where it measures 10.2:1. On a
+     colour field, hierarchy is size and weight, never opacity. */
+  --figure-dim: rgba(255, 255, 255, 0.72);
+
+  /* The card's accent — marks a round that landed. */
+  --accent: #27BF46;
 
   /* Rules. One weight, two opacities: the axis a dot sits on, and the centre
      line it is measured against. */
-  --rule:          rgba(255, 255, 255, 0.28);
-  --rule-strong:   rgba(255, 255, 255, 0.50);
-  --rule-w:        1px;
-  --border-w:      2px;       /* the only border weight, on the secondary button */
+  --rule:        rgba(255, 255, 255, 0.28);
+  --rule-strong: rgba(255, 255, 255, 0.50);
+  --rule-w:      1px;
+  --border-w:    2px;
 
   /* ---- Space — base 4, eight steps ------------------------------------
      Nineteen ad-hoc values snapped onto this. --page is the only page margin
@@ -108,6 +134,11 @@
   --dur-state: 120ms;   /* a control changing state */
   --dur-view:  240ms;   /* one view replacing another */
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* The Perfect burst's one-shot entrance, and nothing else. Kept out of the
+     --dur-state / --dur-view pair on purpose: it is a documented exception on
+     one element, not a third duration the UI may use. See styles.css. */
+  --dur-burst: 600ms;
 
   /* ---- Depth -----------------------------------------------------------
      There is one z-index per layer and no shadows at all. The single shadow in
