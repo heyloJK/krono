@@ -113,6 +113,7 @@ const OG = {
   LABEL_SIZE: 24,
   NUM_SIZE: 160,             // the hero grade
   TRACK_EM: 4.8,             // 0.2em of LABEL_SIZE — --track-label
+  FIGURE_EM: 0.24,           // 0.01em of LABEL_SIZE — --track-figure
   TOTAL_W: 340,              // fits "24.50" at NUM_SIZE (295px) and the unit
   LABEL_W: 152,              // fits "ROUND 1" tracked out (146px)
   VALUE_W: 100,              // fits "-10.00" tabular (right-aligned)
@@ -158,9 +159,13 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 const div = (style, body = '') => `<div style="display:flex;${style}">${body}</div>`;
 const abs = (style, body = '') => div(`position:absolute;${style}`, body);
 
-// Tracked uppercase, the card's only chrome style.
+// The two type roles, matching --track-label and --track-figure on screen.
+// Tracked uppercase for chrome; figures get almost none — a tracked numeral
+// column reads as decorative and stops looking like a measurement.
 const chrome = (extra = '') =>
   `font-family:${LABEL_FACE};font-size:${OG.LABEL_SIZE}px;letter-spacing:${OG.TRACK_EM}px;${extra}`;
+const figure = (extra = '') =>
+  `font-family:${LABEL_FACE};font-size:${OG.LABEL_SIZE}px;letter-spacing:${OG.FIGURE_EM}px;${extra}`;
 
 function ogRow(row) {
   const colour = TONES[row.tone].color;
@@ -180,7 +185,7 @@ function ogRow(row) {
     `height:${OG.ROW_H}px;align-items:center`,
     div(`width:${OG.LABEL_W}px;${chrome(`color:${C.dim}`)}`, esc(row.label))
     + track
-    + div(`width:${OG.VALUE_W}px;justify-content:flex-end;${chrome(`color:${C.figure}`)}`,
+    + div(`width:${OG.VALUE_W}px;justify-content:flex-end;${figure(`color:${C.figure}`)}`,
       esc(row.value)),
   );
 }

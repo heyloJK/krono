@@ -117,6 +117,22 @@ test('the OG card draws every mark — it never emits a glyph it cannot render',
   assert.equal((phtml.match(/#27BF46/g) || []).length, 5, 'five accent dots, one per round');
 });
 
+test('the value column is set as figures, not as chrome', () => {
+  // css/styles.css tracks .cd-label and .cd-unit at --track-label and .cd-value
+  // at --track-figure. The card once tracked its values out to the label's
+  // 0.2em, which rendered "+ 0 . 0 4" and made the numeral column read as
+  // decoration on the one surface strangers actually see.
+  const html = renderCardHTML(cardModel(MOCKUP));
+  const M = CARD_METRICS;
+  const valueStyles = [...html.matchAll(/justify-content:flex-end;([^"]*)/g)].map((m) => m[1]);
+  assert.equal(valueStyles.length, MOCKUP.rounds.length, 'one right-aligned value per round');
+  for (const style of valueStyles) {
+    assert.ok(style.includes(`letter-spacing:${M.FIGURE_EM}px`),
+      `a value is tracked as chrome, not as a figure: ${style}`);
+  }
+  assert.ok(M.FIGURE_EM < M.TRACK_EM / 10, 'figures carry near-zero tracking');
+});
+
 test('the image and the screen agree on the values they print', () => {
   // The one thing that must never drift: what the card prints is what the
   // screen prints, character for character, U+2212 included.
