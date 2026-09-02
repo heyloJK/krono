@@ -21,15 +21,37 @@
   <meta name="twitter:title" content="Krono — the daily time game" />
   <meta name="twitter:description" content="Five challenges to test your intuition of time. One shot, once a day. How many seconds were you off?" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Squada+One&family=Archivo:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
+  <!-- ONE typeface, self-hosted, preloaded.
+       Previously two families came from fonts.googleapis.com behind two
+       preconnects and a render-blocking stylesheet, which meant the score
+       screen could paint its figures in a fallback face and then reflow them.
+       This is the Latin subset of Archivo's variable font — 88KB, one request,
+       same origin, preloaded so it is in cache before the first paint. It
+       carries U+2212 MINUS SIGN, which every negative reading depends on. -->
+  <link rel="preload" href="fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="css/tokens.css" />
   <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    @font-face {
+      font-family: 'Archivo';
+      font-style: normal;
+      font-weight: 500 900;
+      font-stretch: 62% 125%;
+      /* `block` rather than `swap`: the file is preloaded and same-origin, so
+         the block period is imperceptible, and a swap would repaint every
+         numeral on the score screen in a different face mid-read. */
+      font-display: block;
+      src: url(fonts/archivo-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+        U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+        U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+  </style>
 </head>
 <body>
   <main id="app" aria-live="polite"></main>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <button id="mute" class="mute-toggle" aria-label="Mute sound and haptics" type="button">🔊</button>
-  <script type="module" src="js/app.js?v=4"></script>
+  <button id="mute" class="mute-toggle" type="button" aria-pressed="false">SOUND</button>
+  <script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

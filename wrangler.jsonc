@@ -1,11 +1,16 @@
 {
-  // Static-only Worker: no server code, just the files in this folder.
+  // The site is static files plus one Worker, which exists only for the share
+  // link: /s/<code> and /og/<code>.png are generated from the result encoded in
+  // the URL, so they cannot be files. Everything else falls through to `assets`.
+  //
   // `wrangler deploy` cannot auto-detect the site because the site IS the repo
   // root (it looks for public/, dist/, build/ and finds none), so point it here
   // explicitly. `name` must match the Cloudflare project name.
   "name": "krono",
+  "main": "worker/index.js",
   "compatibility_date": "2026-08-30",
   "assets": {
-    "directory": "./"
+    "directory": "./",
+    "binding": "ASSETS"
   }
 }

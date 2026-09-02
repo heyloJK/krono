@@ -1,0 +1,125 @@
+/* tokens.css — the whole design system. Nothing outside this file may contain a
+   literal colour, size, duration or radius.
+
+   Every value here was already in the build; this file picks the best instance
+   of each and deletes the rest. Where a value was dropped the reason is stated,
+   because the next person to add one needs to know which rule they are breaking.
+
+   Counts, before → after:
+     colour     33 → 8      type sizes  25 → 6      weights   5 → 2
+     spacing    19 → 8      radius       4 → 2      tracking 13 → 2
+     durations   6 → 2      easings      2 → 1      shadows   1 → 0
+*/
+
+:root {
+  /* ---- Colour, named by role -------------------------------------------
+     Two field colours, not four. The old set had --pink #FF2D8B and --brain
+     #FE2E8A — one percent apart, indistinguishable, doing the same job. Both
+     are gone, and so is the green/yellow/red verdict triad: colour in this
+     product now says WHICH KIND OF ROUND you are in and nothing else. How far
+     out you were is the number, and on the card it is the dot's position.
+
+     The two survivors are also the only two that are legible. Measured against
+     solid white: blue 7.52:1, purple 5.36:1 — both clear 4.5:1 at any size.
+     Pink was 3.50:1 and red 3.36:1, green 2.43:1, yellow 2.17:1: white body
+     text on any of those failed at every size it was ever used at. That is why
+     they are gone rather than re-tuned — re-tuning would have changed the
+     palette, and dropping them did not. */
+  --surface:       #0B0B12;   /* the results ground, and the card's */
+  --field-produce: #3121FF;   /* rounds where YOU make the interval: 1, 2, 4 */
+  --field-judge:   #7A3CFF;   /* rounds where you READ an interval: 3, 5 */
+  --figure:        #FFFFFF;   /* every mark and label, on every background */
+
+  /* Secondary label. Only ever used on --surface, where it measures 10.2:1.
+     There is deliberately no dim token for the colour fields: on a field,
+     hierarchy is size and weight, never opacity. Ten white opacities collapse
+     to these two. */
+  --figure-dim:    rgba(255, 255, 255, 0.72);
+
+  /* The one accent. It marks a round that landed inside the tight band, on the
+     score card, and appears nowhere else. Kept from the existing --green. */
+  --accent:        #27BF46;
+
+  /* Rules. One weight, two opacities: the axis a dot sits on, and the centre
+     line it is measured against. */
+  --rule:          rgba(255, 255, 255, 0.28);
+  --rule-strong:   rgba(255, 255, 255, 0.50);
+  --rule-w:        1px;
+  --border-w:      2px;       /* the only border weight, on the secondary button */
+
+  /* ---- Space — base 4, eight steps ------------------------------------
+     Nineteen ad-hoc values snapped onto this. --page is the only page margin
+     in the product and is applied without exception. */
+  --s1:  4px;
+  --s2:  8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 72px;
+  --page: var(--s5);
+
+  /* ---- Type ------------------------------------------------------------
+     ONE family. Squada One is gone: it has no tabular figures, and
+     `font-feature-settings: "tnum" 1` was declared on it twice and did nothing
+     — its "1" is 45% narrower than its "8", so every score in the game shifted
+     as it changed. Krono is a measurement instrument; that is disqualifying.
+
+     The replacement is the typeface already in the build. Archivo's variable
+     width axis at wdth 62 gives the same condensed, squarish, heavy display
+     grade the design was reaching for (its "0" sets 88px against Squada's 90px
+     at the same size, so the numeral column keeps its colour and measure), and
+     it has real tabular figures. Character stays; the jitter goes. */
+  --face: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Six sizes, one job each. */
+  --t-hero:    clamp(88px, 26vw, 168px);  /* the measurement. One per screen. */
+  --t-display: clamp(52px, 15vw, 104px);  /* entered value, equation, "Running" */
+  --t-lead:    clamp(21px, 5vw, 30px);    /* the line that frames the figure */
+  --t-body:    19px;                      /* the instruction at the foot */
+  --t-label:   13px;                      /* tracked uppercase chrome */
+  --t-micro:   12px;                      /* the floor. Nothing may be smaller. */
+
+  /* Two weights. Prose is normal, everything structural is bold. */
+  --w-normal: 500;
+  --w-bold:   800;
+
+  /* Two trackings. Digits need almost none; uppercase chrome needs a lot. */
+  --track-figure: 0.01em;
+  --track-label:  0.2em;
+
+  /* Two leadings: set solid for display figures, readable for prose. */
+  --lead-solid: 0.86;
+  --lead-text:  1.15;
+
+  /* Condensed display grade, applied to figures only. */
+  --width-figure: 62;
+
+  /* ---- Radius — two, and when each applies ----------------------------
+     Pill: anything you press. Field: anything you type into or choose from.
+     Nothing else gets a radius. */
+  --r-pill:  999px;
+  --r-field: 12px;
+
+  /* ---- Motion ----------------------------------------------------------
+     Two durations, one curve, both one-shot. See the round-screen override in
+     styles.css: inside a round every duration below resolves to 0. */
+  --dur-state: 120ms;   /* a control changing state */
+  --dur-view:  240ms;   /* one view replacing another */
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* ---- Depth -----------------------------------------------------------
+     There is one z-index per layer and no shadows at all. The single shadow in
+     the old build was a decorative double ring on one button; it read as a
+     rendering artifact on dark backgrounds and is deleted rather than
+     harmonised. */
+  --z-base:   0;
+  --z-chrome: 10;
+  --z-toast:  20;
+}
+
+/* Reduced motion, and inside a round, are the same instruction: hold still. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-state: 0ms; --dur-view: 0ms; }
+}
