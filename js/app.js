@@ -8,8 +8,9 @@ import {
 } from './scoring.js';
 import { load, save, newSession, finalizeDay } from './storage.js';
 import { shareSummary, encodeResult, headlineRate } from './share.js';
-import { cardModel, CARD_VERSION } from './scorecard.js';
+import { cardModel, TONES, PERFECT_GLYPH, CARD_VERSION } from './scorecard.js';
 import { copyToClipboard } from './clipboard.js';
+import { rngFromString, randInt } from './prng.js';
 import { todayUTC, toDateString, msUntilNextUTCMidnight } from './dates.js';
 import { logRound, installDataHelper } from './instrumentation.js';
 import { feedback, setMuted, isMuted, unlockOnFirstGesture } from './feedback.js';
@@ -22,18 +23,9 @@ const LAST_ROUND = TOTAL_ROUNDS;
 // The score card labels its rows ROUND 1–5 instead; the two never appear on the
 // same surface.
 const SHARE_KEYS = ['MARK', 'FRAC', 'READ', 'DRFT', 'SPLT'];
-// ---- Fields and bands -----------------------------------------------------
-// A field is a colour AND the text colour that sits on it, always together.
-// `light` fields take ink, `dark` fields take white — see tokens.css for the
-// measured contrast behind each pairing.
-const FIELD = {
-  mark:  { bg: 'var(--field-mark)',  tone: 'dark' },   // rounds 1 and 2
-  read:  { bg: 'var(--field-read)',  tone: 'dark' },   // rounds 3 and 4
-  split: { bg: 'var(--field-split)', tone: 'light' },  // round 5
-  surface: { bg: 'var(--surface)', tone: 'dark' },
-};
-const ROUND_FIELD = {
-  1: FIELD.mark, 2: FIELD.mark, 3: FIELD.read, 4: FIELD.read, 5: FIELD.split,
+const ROUND_COLOR = {
+  1: 'var(--blue)', 2: 'var(--pink)', 3: 'var(--purple)', 4: 'var(--purple)',
+  5: 'var(--brain)',
 };
 
 // ---- Dev mode -------------------------------------------------------------
@@ -53,14 +45,9 @@ function runCleanup() {
   cleanup.forEach((fn) => { try { fn(); } catch {} });
   cleanup = [];
 }
-function screen(html, { round = false, field = FIELD.surface } = {}) {
+function screen(html, { round = false, bg = 'var(--ink)' } = {}) {
   runCleanup();
-  document.documentElement.style.setProperty('--screen-bg', field.bg);
-  // The text colour rides with the field. Every rule in the stylesheet reads
-  // --on-field rather than naming a colour, so this one class swap is what
-  // keeps type legible on a bright field and on a deep one alike.
-  document.body.classList.toggle('on-light', field.tone === 'light');
-  document.body.classList.toggle('on-dark', field.tone !== 'light');
+  document.documentElement.style.setProperty('--screen-bg', bg);
   const app = $app();
   app.className = round ? 'round-screen' : '';
   app.innerHTML = html;
@@ -83,79 +70,47 @@ function toast(msg) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.classList.remove('show'); }, 1600);
 }
-// ONE numeric form in the whole product: seconds to two decimal places, always
-// two. The build previously showed the same quantity three ways — "2:25" on a
-// round screen, "4.67" in the field that accepts it, "+1.50" on the card — and
-// the colon form additionally read as minutes:seconds, which 8.58 seconds is
-// not. Two decimals always, so a column of readings never changes width.
+// Time display: seconds:centiseconds, NO leading zero on the seconds — 5450ms →
+// "5:45", 870ms → "0:87", 12340ms → "12:34".
 function big(ms) {
   const cs = Math.round(ms / 10);
-  return `${Math.floor(cs / 100)}.${String(cs % 100).padStart(2, '0')}`;
+  return `${Math.floor(cs / 100)}:${String(cs % 100).padStart(2, '0')}`;
 }
 // Signed error, e.g. +0:12 / −0:32 (U+2212 minus for negatives).
 function signed(ms) {
   return (ms < 0 ? '−' : '+') + big(Math.abs(ms));
 }
 const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-// How long until the next puzzle, read ONCE and stated. Not a clock: the old
-// build ticked this on setInterval(1000), which is a literal one-second
-// metronome running inside a product whose whole subject is that you cannot be
-// given one. Coarse on purpose — an hours-and-minutes figure has no second hand
-// to entrain to, and nobody needed the seconds.
-function untilNext(ms) {
-  const mins = Math.max(0, Math.ceil(ms / 60000));
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m} MIN`;
-  return m === 0 ? `${h} HR` : `${h} HR ${m} MIN`;
+// Countdown clock, HH:MM:SS — used only for "next puzzle in…" on the results
+// screen, where a ticking display is safe (no round is being timed).
+function hhmmss(ms) {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(t / 3600))}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`;
 }
 
 // ---- Screen scaffold ------------------------------------------------------
-// EVERY screen in the game — the landing and all five rounds — is this stage.
-// Five fixed rows: counter, lead line, the measurement, a note slot, the
-// instruction. Because the rows are fixed, the measurement occupies the same
-// box on every screen; only what is inside it changes. The old scaffold centred
-// a flex column, so round 4 drew its "Stop at" 31px higher than round 1 drew
-// the identical words, and the landing shared none of the round chrome at all.
-//
-// Empty slots stay in the markup and keep their height. That is the point: a
-// screen with no lead line must not pull the figure upward.
-function stage({ counter = '', lead = '', figure = '', note = '', hint = '', cls = '' }) {
-  // No measurement on this screen? Collapse the figure slot. Left reserved, it
-  // opened a 144px hole between the copy and the note on the two intro screens.
-  const kind = figure ? cls : `${cls} intro`;
-  return `<div class="screen stage ${kind}">
+// Every round screen is a 3-zone stage: top counter (.rk), centred content
+// (.mid), bottom hint (.hint). .rk/.hint are pinned to the viewport by CSS so
+// .mid stays dead-centre. The hint element is always present (may be empty).
+function stage({ counter, center, hint = '', cls = '' }) {
+  return `<div class="screen stage ${cls}">
     <p class="rk">${counter}</p>
-    <p class="lead">${lead}</p>
-    <div class="field">${figure}</div>
-    <div class="note">${note}</div>
+    <div class="mid">${center}</div>
     <p class="hint">${hint}</p>
   </div>`;
 }
-const spaceHint = (verb) => `<span class="key">SPACE</span> to ${verb}`;
-const setSlot = (sel, html) => { const n = $app().querySelector(sel); if (n) n.innerHTML = html; };
-const setLead = (html) => setSlot('.lead', html);
-const setField = (html) => setSlot('.field', html);
-const setNote = (html) => setSlot('.note', html);
-const setHint = (html) => setSlot('.hint', html);
+const spaceHint = (verb) => `Hit <span class="key">SPACE</span> to ${verb}`;
+const setMid = (html) => { const m = $app().querySelector('.mid'); if (m) m.innerHTML = html; };
+const setHint = (html) => { const h = $app().querySelector('.hint'); if (h) h.innerHTML = html; };
 
-// The unit every reading in the product is stated in. Identical wording and
-// identical treatment on the round result, the results screen and the shared
-// card, because they are all reporting the same quantity.
-const UNIT = '<p class="note-line">SECONDS OFF</p>';
-
-// The result field, by band. Restored: colour here says how close the reading
-// was, which is a second meaning colour carries in this product alongside
-// "which round". Both the field and the copy are the original ones; what
-// changed is that the type on them is ink, because white measured 2.43:1 on
-// green and 2.17:1 on orange and was never readable.
+// Result-screen colour + copy by band. `perfect` gets its own animated screen
+// (see showPerfectResult); the rest are a flat field + encouraging copy.
 const BAND_UI = {
-  green:  { field: { bg: 'var(--band-near)', tone: 'light' }, copy: 'Almost got it' },
-  yellow: { field: { bg: 'var(--band-mid)',  tone: 'light' }, copy: 'Not quite' },
-  red:    { field: { bg: 'var(--band-far)',  tone: 'light' }, copy: 'Not even close' },
+  green:  { bg: 'var(--green)',  copy: 'Almost got it' },
+  yellow: { bg: 'var(--yellow)', copy: 'Not quite' },
+  red:    { bg: 'var(--red)',    copy: 'Not even close' },
 };
-const PERFECT_FIELD = { bg: 'var(--band-perfect)', tone: 'light' };
-const counterFor = (index) => `${index} / ${TOTAL_ROUNDS}`;
 
 // SPACE / tap binder. `action(now)` receives performance.now() captured as the
 // FIRST statement of the handler, so timing-critical presses stay accurate.
@@ -196,14 +151,13 @@ function parseGuessToMs(str) {
   if (!isFinite(v) || v < 0) return null;
   return Math.round(v * 1000);
 }
-// The entered value. Right-aligned in a fixed slot so the digits already typed
-// do not move as more arrive, and no caret, because a blinking caret is a ~1Hz
-// metronome on a screen that is timing the player.
-const guessField = (inputId) =>
-  `<input class="entry" id="${inputId}" inputmode="decimal" placeholder="0.00"
-     maxlength="6" aria-label="Your estimate in seconds" autofocus />`;
-const guessNote = (inputId) => `<p class="fmt">SECONDS</p>
-    <button class="btn" id="${inputId}-submit">SUBMIT</button>`;
+// Shared guess markup: a cue over a big white type-in field and a SUBMIT button.
+const guessCenter = (cueText, inputId) => `<p class="cue">${cueText}</p>
+    <div class="guess">
+      <input id="${inputId}" inputmode="decimal" placeholder="0.00" aria-label="Your estimate in seconds" autofocus />
+      <p class="fmthint">seconds — e.g. 4.67</p>
+      <button class="btn" id="${inputId}-submit">SUBMIT</button>
+    </div>`;
 // Wire a guess field: focus it, submit on the button or Enter. onSubmit gets ms.
 function bindGuess(inputId, onSubmit) {
   const input = $app().querySelector(`#${inputId}`);
@@ -282,10 +236,8 @@ function init() {
 function setupMuteToggle() {
   const btn = document.getElementById('mute');
   const render = () => {
-    // A word, not a 🔊 emoji: an emoji is a different picture on every platform
-    // and puts a piece of cartoon art on a measurement instrument.
-    btn.textContent = isMuted() ? 'MUTED' : 'SOUND';
-    btn.setAttribute('aria-pressed', String(isMuted()));
+    btn.textContent = isMuted() ? '🔇' : '🔊';
+    btn.classList.toggle('is-muted', isMuted());
     btn.setAttribute('aria-label', isMuted() ? 'Unmute sound and haptics' : 'Mute sound and haptics');
   };
   render();
@@ -303,15 +255,15 @@ function setupMuteToggle() {
 // Landing
 // ==========================================================================
 function showLanding() {
-  screen(stage({
-    counter: `DAILY #${challenge.puzzleNumber}${DEV ? ' · TEST' : ''}`,
-    lead: '5 challenges to test your intuition of time',
-    figure: '<h1 class="fig word">KRONO</h1>',
-    note: `<button class="btn" id="play" autofocus>START</button>
-      <button class="linkbtn" id="test">${DEV ? 'Another test challenge' : 'Test challenge'}</button>`,
-    hint: prettyDate(challenge.date),
-    cls: 'enter',
-  }), { field: FIELD.mark });
+  screen(`
+    <div class="screen landing enter">
+      <h1 class="wordmark">KRONO</h1>
+      <p class="prompt lead">5 challenges to test your intuition of time</p>
+      <button class="btn ring" id="play" autofocus>START</button>
+      <button class="testlink" id="test">${DEV ? '↻ Another test challenge' : 'Play a test challenge →'}</button>
+    </div>
+    <p class="landing-foot">DAILY #${challenge.puzzleNumber} <span class="dot">•</span> ${prettyDate(challenge.date)}${DEV ? ' · TEST' : ''}</p>
+  `, { bg: 'var(--blue)' });
   $app().querySelector('#play').addEventListener('click', () => { feedback.tap(); startPlay(); });
   $app().querySelector('#test').addEventListener('click', () => { feedback.tap(); gotoTestChallenge(); });
 }
@@ -350,11 +302,10 @@ function productionRound(index) {
   let phase = 'ready', startAt = 0;
 
   screen(stage({
-    counter: counterFor(index),
-    lead: 'Stop at',
-    figure: `<p class="fig">${big(targetMs)}</p>`,
+    counter: `${index} / ${TOTAL_ROUNDS}`,
+    center: `<p class="cue">Stop at</p><p class="hero">${big(targetMs)}</p>`,
     hint: spaceHint('begin'),
-  }), { round: true, field: ROUND_FIELD[index] });
+  }), { round: true, bg: ROUND_COLOR[index] });
 
   bindPress((now) => {
     if (phase === 'ready') begin(now);
@@ -365,11 +316,8 @@ function productionRound(index) {
     startAt = startTime; // the press timestamp (captured first) — the hold begins here
     phase = 'running';
     feedback.begin();
-    // The target stays up, small, so the hold isn't blind — but it stays in the
-    // SAME slot rather than being swapped for the running word, so nothing on
-    // screen moves at the instant the measurement starts.
-    setLead(big(targetMs));
-    setField('<p class="fig word">Running</p>');
+    // Target reminder stays up small, so the player isn't holding blind.
+    setMid(`<p class="cue">${big(targetMs)}</p><p class="hero word">Running</p>`);
     setHint(spaceHint('stop'));
   }
 
@@ -392,17 +340,17 @@ function finishProduction(index, measuredMs, targetMs) {
 function guessRound(index) {
   const intendedMs = challenge[`round${index}`].durationMs;
   screen(stage({
-    counter: counterFor(index),
-    lead: 'We’ll start the clock, you guess the time',
+    counter: `${index} / ${TOTAL_ROUNDS}`,
+    center: `<p class="prompt-xl">We’ll start the clock, you guess the time</p>`,
     hint: spaceHint('begin'),
-  }), { round: true, field: ROUND_FIELD[index] });
+  }), { round: true, bg: ROUND_COLOR[index] });
 
   bindPress((startAt) => start(startAt)); // startAt = performance.now(), captured first
 
   function start(startAt) {
     feedback.begin();
-    screen(stage({ counter: counterFor(index), figure: '<p class="fig word">Running</p>' }),
-      { round: true, field: ROUND_FIELD[index] });
+    screen(stage({ counter: `${index} / ${TOTAL_ROUNDS}`, center: `<p class="hero word">Running</p>` }),
+      { round: true, bg: ROUND_COLOR[index] });
     const timer = setTimeout(() => {
       const stopAt = performance.now(); // FIRST statement in callback
       askGuess(stopAt - startAt);
@@ -412,12 +360,10 @@ function guessRound(index) {
 
   function askGuess(actualMs) {
     screen(stage({
-      counter: counterFor(index),
-      lead: 'How long was that?',
-      figure: guessField('guess'),
-      note: guessNote('guess'),
+      counter: `${index} / ${TOTAL_ROUNDS}`,
+      center: guessCenter('How long was that?', 'guess'),
       hint: spaceHint('submit'),
-    }), { round: true, field: ROUND_FIELD[index] });
+    }), { round: true, bg: ROUND_COLOR[index] });
     bindGuess('guess', (guessMs) => {
       const s = scoreRound(guessMs, actualMs);
       completeRound(index, {
@@ -457,12 +403,11 @@ function driftRound(index) {
   const timers = [];
 
   screen(stage({
-    counter: counterFor(index),
-    lead: 'Stop at',
-    figure: `<p class="fig">${big(cfg.targetMs)}</p>`,
-    note: '<p class="note-line">THE TICKS STOP BEFORE YOU DO</p>',
+    counter: `${index} / ${TOTAL_ROUNDS}`,
+    center: `<p class="cue">Stop at</p><p class="hero">${big(cfg.targetMs)}</p>
+      <p class="cue tiny">The ticks stop before you do</p>`,
     hint: spaceHint('begin'),
-  }), { round: true, field: ROUND_FIELD[index] });
+  }), { round: true, bg: ROUND_COLOR[index] });
 
   bindPress((now) => {
     if (phase === 'ready') begin(now);
@@ -476,10 +421,9 @@ function driftRound(index) {
     // Target reminder stays up small, as in rounds 1–2, so the hold isn't blind.
     // The dots are always in the markup, only their brightness changes, so a
     // tick can never reflow the line under a player who is watching it.
-    setLead(big(cfg.targetMs));
-    setField(`<p class="fig word">Running<span class="dots" aria-hidden="true"
+    setMid(`<p class="cue">${big(cfg.targetMs)}</p>
+      <p class="hero word">Running<span class="dots" aria-hidden="true"
         >${'<span>.</span>'.repeat(TICK_DOTS)}</span></p>`);
-    setNote('');
     setHint(spaceHint('stop'));
 
     const dots = $app().querySelectorAll('.dots > span');
@@ -530,11 +474,11 @@ function driftRound(index) {
 // ==========================================================================
 function round5Intro() {
   screen(stage({
-    counter: counterFor(5),
-    lead: 'Solve it, then guess how long it took',
-    note: '<p class="note-line">LEAVING THIS SCREEN ENDS THE ROUND</p>',
+    counter: `5 / ${TOTAL_ROUNDS}`,
+    center: `<p class="prompt-xl">Solve it, then guess how long it took</p>
+      <p class="cue tiny">Stay on this screen — leaving ends the round</p>`,
     hint: spaceHint('begin'),
-  }), { round: true, field: ROUND_FIELD[5] });
+  }), { round: true, bg: ROUND_COLOR[5] });
   bindPress((startAt) => { feedback.begin(); runRound5(startAt); }); // startAt = performance.now(), captured first
 }
 
@@ -545,7 +489,7 @@ function runRound5(startAt) {
 
   let resolved = false;
   const timers = [];
-  const host = screen('<div class="screen"></div>', { round: true, field: ROUND_FIELD[5] });
+  const host = screen('<div class="screen"></div>', { round: true, bg: ROUND_COLOR[5] });
 
   const onHide = () => { if (document.hidden) abandon(); };
   const onBlur = () => abandon();
@@ -576,10 +520,9 @@ function runRound5(startAt) {
 
   // Equation immediately — no blank pre-delay.
   host.innerHTML = stage({
-    counter: counterFor(5),
-    figure: `<p class="fig">${cfg.a} ${cfg.op} ${cfg.b}</p>`,
-    note: '<div class="options" id="options"></div>',
-    hint: 'Tap an answer, or keys 1–4',
+    counter: `5 / ${TOTAL_ROUNDS}`,
+    center: `<p class="hero sm">${cfg.a} ${cfg.op} ${cfg.b}</p><div class="options" id="options"></div>`,
+    hint: 'Tap an answer · or keys 1–4',
   });
   const optWrap = host.querySelector('#options');
   cfg.options.forEach((val, i) => {
@@ -627,10 +570,8 @@ function runRound5(startAt) {
 
   function guessPhase(intervalMs, mathCorrect) {
     host.innerHTML = stage({
-      counter: counterFor(5),
-      lead: 'How long was that?',
-      figure: guessField('g5'),
-      note: guessNote('g5'),
+      counter: `5 / ${TOTAL_ROUNDS}`,
+      center: guessCenter('How long was that?', 'g5'),
       hint: spaceHint('submit'),
     });
     let expireTimer = 0;
@@ -711,75 +652,69 @@ function bindResultAdvance(index) {
   bindPress(() => go());
 }
 
-// The reading, and a line of copy above it.
-//
-// A dead-zero offset gets the Perfect screen; everything else is a flat
-// band-coloured field. The band colour and the copy are both the originals.
-// What is not restored is the fabricated social proof the Perfect screen used
-// to carry — "Only 23 people got this today" was generated from a seeded RNG,
-// so it stated a fact about other players that did not exist.
+// A dead-0 offset earns the celebratory Perfect screen; everything else is a
+// flat band-coloured field with encouraging copy and the SIGNED error. No
+// auto-advance — the player presses SPACE (or taps) to move on.
 function showResult(index, result) {
   const band = result.band || 'red';
   if (band === 'perfect') return showPerfectResult(index, result);
   feedback.result(band);
 
   const ui = BAND_UI[band] || BAND_UI.red;
-  let copy = ui.copy, value, extra = '';
+  let copy = ui.copy, value, sub = '';
   if (index === 5 && result.outcome === 'timeout') {
-    copy = 'No answer';
-    value = big(result.scoreMs);
+    copy = 'No answer'; value = big(result.scoreMs); // 2:00
   } else if (index === 5 && result.outcome === 'expired') {
-    copy = 'Time up';
-    value = big(result.scoreMs);
+    copy = 'Time up'; value = big(result.scoreMs);
   } else {
     value = signed(result.signedMs);
-    if (index === 4) extra = driftLine(result);
-    if (index === 5 && result.mathCorrect === false) {
-      extra += '<p class="note-line">+0.50 MATH</p>';
-    }
+    if (index === 4) sub = driftLine(result);
+    if (index === 5 && result.mathCorrect === false) sub = '<p class="cue tiny">+0:50 math</p>';
   }
 
   const isLast = index === LAST_ROUND;
   screen(stage({
-    counter: counterFor(index),
-    lead: copy,
-    figure: `<p class="fig">${value}</p>`,
-    note: UNIT + extra,
+    counter: `${index} / ${TOTAL_ROUNDS}`,
+    center: `<p class="cue">${copy}</p><p class="hero">${value}</p>${sub}`,
     hint: spaceHint(isLast ? 'see results' : 'continue'),
-  }), { round: true, field: ui.field });
+    cls: 'reveal',
+  }), { round: true, bg: ui.bg });
   bindResultAdvance(index);
 }
 
-// The Perfect screen — the rarest outcome, so the celebration lives here. The
-// burst is the original artwork (cyan core, navy rays); see the note in
-// styles.css for why its type is ink and why its one-shot entrance is the
-// single documented motion exception on a round screen.
+// The Perfect screen — a comic-book burst (cyan core, navy rays) whose rays
+// rotate slowly. The rarest outcome (offset 0), so the celebration lives here.
 function showPerfectResult(index, result) {
   const isLast = index === LAST_ROUND;
-  feedback.result('green');
-  screen(stage({
-    counter: counterFor(index),
-    lead: 'Dead on',
-    figure: '<p class="fig word">Perfect</p>',
-    note: index === 4 ? driftLine(result) : '',
-    hint: spaceHint(isLast ? 'see results' : 'continue'),
-    cls: 'perfect',
-  }), { round: true, field: PERFECT_FIELD });
-  const stageEl = $app().querySelector('.stage');
-  const burst = document.createElement('div');
-  burst.className = 'perfect-burst';
-  burst.setAttribute('aria-hidden', 'true');
-  stageEl.prepend(burst);
+  feedback.perfect();
+  screen(`
+    <div class="screen stage perfect">
+      <div class="perfect-burst" aria-hidden="true"></div>
+      <p class="rk">${index} / ${TOTAL_ROUNDS}</p>
+      <div class="mid">
+        <p class="cue">Only ${perfectCount(index)} people got this today</p>
+        <p class="hero word perfect-word">Perfect</p>
+        ${index === 4 ? driftLine(result) : ''}
+      </div>
+      <p class="hint">${spaceHint(isLast ? 'see results' : 'continue')}</p>
+    </div>
+  `, { round: true, bg: 'var(--perfect)' });
   bindResultAdvance(index);
 }
 
 // Round 4's post-round line — the only place the day's bias is ever stated, and
 // the whole tutorial for the round. A fast reference pulls the player early, a
-// slow one pulls them late; "followed" is sign agreement with that pull.
+// slow one pulls them late; "followed it" is sign agreement with that pull.
 function driftLine(result) {
   const { biasDir, biasPct } = challenge.round4;
   const verdict = result.followedBias ? 'You followed it.' : 'You didn’t.';
-  return `<p class="drift">Reference ran ${Math.round(biasPct)}% ${biasDir}. ${verdict}</p>`;
+  return `<p class="cue tiny">Reference ran ${Math.round(biasPct)}% ${biasDir}. ${verdict}</p>`;
+}
+
+// Social-proof flavour for the Perfect screen. No backend yet (Phase 0), so it's
+// a small number seeded by the day + round — stable across refresh/replay.
+function perfectCount(index) {
+  return randInt(rngFromString(`perfect-${challenge.date}-${index}`), 2, 40);
 }
 
 // ==========================================================================
@@ -908,15 +843,16 @@ async function doShare() {
 // NEVER normalised to the day — a bad day pegging at the edge is information,
 // not a rendering fault. A pegged row keeps its dot and adds a chevron, so a
 // clipped value can't read as a merely-large one.
-// The tone is a CLASS, not an inline colour: the dot's two colours are
-// --accent and --figure, and a component holding a literal hex is exactly what
-// the token layer exists to prevent. A perfect round is no longer a 💎 — it is
-// an accent dot at dead centre reading 0.00, which the axis already says more
-// precisely than an emoji could, on a surface where emoji do not belong.
 function cardRowHtml(row) {
   const pos = `left:${(row.fraction * 100).toFixed(3)}%`;
+  const mark = row.isPerfect
+    ? `<span class="cd-perfect" style="${pos}">${PERFECT_GLYPH}</span>`
+    : `<span class="cd-dot" style="${pos};background:${TONES[row.tone].color}"></span>` +
+      (row.pegged
+        ? `<span class="cd-peg cd-peg-${row.side}" style="background:${TONES[row.tone].color}"></span>`
+        : '');
   return `<div class="cd-label">${row.label}</div>
-    <div class="cd-track"><span class="cd-dot ${row.tone}" style="${pos}"></span></div>
+    <div class="cd-track">${mark}</div>
     <div class="cd-value">${escapeHtml(row.value)}</div>`;
 }
 
@@ -931,51 +867,61 @@ function showResults() {
   const shareInput = buildShareInput();
   const card = cardModel(shareInput);
 
-  // The header, the total and the plot are laid out to the SAME rule as the
-  // shared image — header left, total left beneath it, plot right, one baseline
-  // grid. The old screen centred its header and total while the image
-  // left-aligned both, which is what made the thing you look at and the thing
-  // you post read as two different designs of one dataset.
   screen(`
-    <div class="screen sheet enter">
-      <p class="cd-head">KRONO <span class="n">#${card.puzzleNumber}</span>${DEV ? '<span class="n"> · TEST</span>' : ''}${beatToday ? '<span class="n"> · BEST</span>' : ''}</p>
-      <div class="card">
-        <div class="cd-body">
-          <div class="cd-total">
-            <p class="cd-num">${card.totalSeconds.toFixed(2)}</p>
-            <p class="cd-unit">SECONDS OFF</p>
-          </div>
-          <div class="cd-plot" aria-hidden="true">
-            <span class="cd-centre"></span>
-            ${card.rows.map(cardRowHtml).join('')}
-          </div>
-          <p class="sr-only">${escapeHtml(shareSummary(shareInput, { rateNoun: 'seconds off', includeVerdict: false }))}</p>
+    <div class="screen results card">
+      <p class="cd-head">KRONO <span class="n">#${card.puzzleNumber}</span>${DEV ? '<span class="n"> · TEST</span>' : ''}${beatToday ? '<span class="n"> · ★ BEST</span>' : ''}</p>
+      <div class="cd-body">
+        <div class="cd-total">
+          <p class="cd-num">${card.totalSeconds.toFixed(2)}</p>
+          <p class="cd-unit">SECONDS OFF</p>
         </div>
-        <div class="btnrow">
-          ${locked
-            ? `<div class="spent">NEXT KRONO
-                 <span class="when">${untilNext(msUntilNextUTCMidnight())}</span>
-               </div>`
-            : `<button class="btn" id="again" autofocus>${DEV ? 'NEW TEST' : 'PLAY AGAIN'}</button>`}
-          <button class="btn alt" id="share"${locked ? ' autofocus' : ''}>SHARE</button>
-          <!-- Account CTA lands here, in the primary slot, once there is a
-               backend behind it. The row is already sized for it. -->
+        <div class="cd-plot" aria-hidden="true">
+          <span class="cd-centre"></span>
+          ${card.rows.map(cardRowHtml).join('')}
         </div>
+        <p class="sr-only">${escapeHtml(shareSummary(shareInput, { rateNoun: 'seconds off', includeVerdict: false }))}</p>
+      </div>
+      <div class="btnrow">
+        ${locked
+          ? `<div class="btn locked" id="next">
+               <span class="lk">NEXT KRONO IN</span>
+               <span class="cd" id="countdown">--:--:--</span>
+             </div>`
+          : `<button class="btn ring" id="again" autofocus>${DEV ? 'NEW TEST' : 'PLAY AGAIN'}</button>`}
+        <button class="btn alt" id="share"${locked ? ' autofocus' : ''}>SHARE</button>
+        <!-- Account CTA lands here, in the primary slot, once there is a backend
+             behind it. The row is already sized for it. -->
       </div>
       <div class="links">
-        ${DEV ? '' : '<button class="linkbtn" id="test">Test challenge</button>'}
+        ${DEV ? '' : '<button class="testlink" id="test">Test challenge →</button>'}
       </div>
     </div>
-  `, { field: FIELD.surface });
+  `, { bg: 'var(--ink)' });
 
   const againBtn = $app().querySelector('#again'); // absent while locked
   if (againBtn) againBtn.addEventListener('click', () => {
     feedback.tap();
     if (DEV) gotoTestChallenge(); else startPlay();
   });
+  if (locked) startCountdown();
   $app().querySelector('#share').addEventListener('click', () => { feedback.tap(); doShare(); });
   const testBtn = $app().querySelector('#test');
   if (testBtn) testBtn.addEventListener('click', () => { feedback.tap(); gotoTestChallenge(); });
+}
+
+// Ticks the "next puzzle in" clock on a locked results screen. When the UTC date
+// rolls over it re-renders the screen, which comes back unlocked. Registered in
+// `cleanup`, so any screen swap (including that re-render) stops the interval.
+function startCountdown() {
+  const el = $app().querySelector('#countdown');
+  if (!el) return;
+  const tick = () => {
+    if (todayUTC() !== session.date) return showResults(); // new UTC day — unlock
+    el.textContent = hhmmss(msUntilNextUTCMidnight());
+  };
+  tick();
+  const id = setInterval(tick, 1000);
+  cleanup.push(() => clearInterval(id));
 }
 
 init();

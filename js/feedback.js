@@ -83,11 +83,10 @@ export const feedback = {
     tone({ ...(RESULT_TONE[band] || RESULT_TONE.red), duration: 0.18, gain: 0.14 });
     buzz(RESULT_BUZZ[band] || RESULT_BUZZ.red);
   },
-  // `perfect()` used to fire a four-tone arpeggio at a fixed 70ms spacing, with
-  // a five-pulse haptic behind it. Both are trains of evenly spaced onsets —
-  // metronomes, played to the player between two timed rounds. Removed rather
-  // than jittered: there is no celebration in this product, so there was
-  // nothing left for the cue to do.
+  perfect() {
+    [660, 880, 1100, 1320].forEach((freq, i) => tone({ freq, duration: 0.12, gain: 0.13, delay: i * 0.07 }));
+    buzz([20, 40, 20, 40, 60]);
+  },
   toast()      { tone({ freq: 1000, duration: 0.05, type: 'sine', gain: 0.09 }); },
   unmuted()    { tone({ freq: 880, duration: 0.06, type: 'sine', gain: 0.12 }); }, // confirms sound just came back on
 };

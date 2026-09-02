@@ -12,34 +12,30 @@ import {
 } from './share.js';
 import { bandForErrorMs } from './scoring.js';
 
-// Dot colour. TWO tones, not four.
-//
-// SHARE sends this card, so it never carried a red failure state, and it never
-// needed one: POSITION already encodes how far out a round was, so colour only
-// has to mark the good end. That argument was already written here — it just
-// stopped one colour short. Yellow was a second accent doing the same job as
-// green less clearly, and a four-tone ramp made the card read as a status
-// dashboard. One accent marks the rounds that landed; everything else is the
-// figure colour and is read by where it sits.
+// Dot colour. There is deliberately NO red: SHARE sends this card, and a red
+// failure state is exactly what the share must not carry. It isn't needed
+// either — POSITION already encodes how far out a round was, so colour only has
+// to mark the good end. The worst band gets a neutral, which reads as "far out"
+// without reading as "you failed".
 export const TONES = {
-  near:    { name: 'near',    color: '#27BF46' },   // --band-near
-  mid:     { name: 'mid',     color: '#F79B1B' },   // --band-mid
-  neutral: { name: 'neutral', color: '#FFFFFF' },   // --figure
+  perfect: { name: 'perfect', color: null },        // 💎, no dot
+  green:   { name: 'green',   color: '#27BF46' },
+  yellow:  { name: 'yellow',  color: '#F79B1B' },
+  neutral: { name: 'neutral', color: 'rgba(255,255,255,0.82)' },
 };
 
-// The same band language the app's result screens use, minus the far band:
-// a perfect round reads as near. The band names themselves are scoring, and
-// are untouched.
 const TONE_FOR_BAND = {
-  perfect: 'near', green: 'near', yellow: 'mid', red: 'neutral',
+  perfect: 'perfect', green: 'green', yellow: 'yellow', red: 'neutral',
 };
+
+export const PERFECT_GLYPH = '💎';
 
 // Card artwork version. The OG image is served `immutable` with a one-year
 // max-age — it has to be, since the URL is keyed only on the result and the
 // image for a given result never changes on its own. That means a redesign
 // would otherwise never reach anyone holding a cached copy, so every URL that
 // points at a card carries this token. BUMP IT whenever the artwork changes.
-export const CARD_VERSION = 8;
+export const CARD_VERSION = 6;
 
 // A row's dot as a fraction of the axis track, 0 (fully early) to 1 (fully late).
 //
@@ -84,145 +80,114 @@ export function cardModel(input) {
   };
 }
 
-// ---- The shared image -----------------------------------------------------
-// Rendered by the Worker at 1200x630 and rasterised. Satori does not implement
-// CSS grid, so the frame is flexbox with absolute positioning only where a mark
-// has to sit at a fraction of a track.
+// ---- Open Graph card ------------------------------------------------------
+// Rendered by the Worker at 1200×630 and rasterised. Kept to flexbox and
+// absolute positioning only: the rasteriser (Satori) does not implement CSS
+// grid, and every element with more than one child needs an explicit display.
 //
-// THIS AND THE RESULTS SCREEN ARE ONE OBJECT. Everything below mirrors
-// css/styles.css: header top-left, total left-aligned, plot right, the same
-// label / track / value columns, one centre rule, two dot tones, the same
-// tabular values with U+2212 for negatives. They used to disagree about the two
-// most visible things on the card — the screen centred its header and total,
-// the image left-aligned both — which is what made the thing you look at and
-// the thing you post read as two designs of one dataset.
-//
-// The vertical centring is STRUCTURAL (`align-items: center`), not a measured
-// constant. It used to be an offset derived from where the display face happened
-// to put its ink inside a 170px line box, which is exactly the kind of number
-// that silently goes wrong the moment anything above it changes size.
-//
-// Sizes come off the same 8px scale the stylesheet uses, so a value here reads
-// straight across to a token there. Column widths are measured against the
-// longest string each column can hold, not guessed.
-
-const S = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48, 8: 72 };
+// It also renders NO glyph it cannot guarantee. Satori has only the font
+// buffers it is handed, so `▸` and `💎` come out blank — and a blank marker on
+// a perfect round is the worst possible failure, since the best result in the
+// game would silently disappear. Both are drawn instead: the gem as an inline
+// SVG, the peg as a bar. Nothing here depends on a network fetch at render time.
 
 const OG = {
   W: 1200, H: 630,
-  PAD: S[8],                 // --page, all four sides
-  HEAD_SIZE: 24,             // --t-label at card scale
-  LABEL_SIZE: 24,
-  NUM_SIZE: 160,             // the hero grade
-  TRACK_EM: 4.8,             // 0.2em of LABEL_SIZE — --track-label
-  FIGURE_EM: 0.24,           // 0.01em of LABEL_SIZE — --track-figure
-  TOTAL_W: 340,              // fits "24.50" at NUM_SIZE (295px) and the unit
-  LABEL_W: 152,              // fits "ROUND 1" tracked out (146px)
-  VALUE_W: 100,              // fits "-10.00" tabular (right-aligned)
-  ROW_H: 80,
+  PAD: 72,                 // left margin
+  PAD_RIGHT: 104,          // deliberately wider than the left: the value column
+                           // is right-aligned text, so it reads as sitting
+                           // closer to the edge than a left-aligned column of
+                           // the same measure does. The plot columns shift left
+                           // with it rather than the track stretching to close
+                           // the gap.
+  LABEL_X: 440,
+  TRACK_X: 600, TRACK_W: 340,
+  VALUE_W: 96,
   ROWS: 5,
-  DOT: S[5],
+  ROW_H: 92,               // the rows are the card's rhythm; give them room
+  CONTENT_TOP: 150,        // where the body starts. Explicit, NOT centred: the
+                           // header is pinned at HEAD_Y, and a centred block
+                           // ran its rule up level with the wordmark, which
+                           // read as no gap at all under the title.
+  BOTTOM_PAD: 67,          // ink to bottom edge
+  DOT: 26, PEG_W: 4, PEG_H: 26, PEG_GAP: 7, GEM: 36,
+  // Left column: header at the top, the total optically centred against the
+  // plot (its glyphs land around y=310 to the rows' 315), tier as a footer
+  // sitting level with the foot of the centre rule.
+  HEAD_Y: 60,
 };
+// Derived, so the frame's margins can never drift out of agreement with the
+// numbers above: the side margins from PAD/PAD_RIGHT, the row block centred in
+// the frame however ROW_H is tuned, and the centre rule's tail sized so the ink
+// stops exactly BOTTOM_PAD from the bottom edge. The header is NOT part of this
+// — it stays pinned at HEAD_Y.
+const ROW_SPAN = (OG.ROWS - 1) * OG.ROW_H;
+OG.VALUE_X = OG.W - OG.PAD_RIGHT - OG.VALUE_W;
+// The body occupies exactly CONTENT_TOP..(H − BOTTOM_PAD): both edges are stated
+// rather than emergent, so neither can drift when ROW_H is tuned. The rows sit
+// centred inside that span, and the rule's tails are whatever is left over.
+OG.RULE_TOP = OG.CONTENT_TOP;
+OG.RULE_BOTTOM = OG.H - OG.BOTTOM_PAD;
+OG.ROW_TOP = OG.RULE_TOP + Math.round((OG.RULE_BOTTOM - OG.RULE_TOP - ROW_SPAN) / 2);
+// The left column tracks the rows: the total's optical centre sits on the row
+// block's centre, so the two halves of the card read as one line of sight.
+// NUM_INK_CENTRE is where Squada One at 170px actually puts its glyph centre
+// inside its line box — measured, not nominal.
+const NUM_INK_CENTRE = 104;
+OG.NUM_Y = OG.ROW_TOP + ROW_SPAN / 2 - NUM_INK_CENTRE;
+OG.UNIT_Y = OG.NUM_Y + 196;
 
-// Derived. The plot fills whatever the total column leaves, and the track fills
-// whatever the label and value columns leave — the same relationship the
-// stylesheet expresses as `minmax(0, 1fr)`.
-OG.PLOT_W = OG.W - 2 * OG.PAD - OG.TOTAL_W - S[8];
-OG.TRACK_W = OG.PLOT_W - OG.LABEL_W - OG.VALUE_W - 2 * S[6];
-OG.ROWS_H = OG.ROWS * OG.ROW_H;
-// The centre rule crosses every row and overhangs the outer two by --s5 past
-// the dot, as `.cd-centre` does on screen.
-OG.RULE_X = OG.LABEL_W + S[6] + OG.TRACK_W / 2;
-// Measured from the top of the row block: the first row's centre sits at
-// ROW_H/2, and the rule starts --s5 above that row's dot. The bottom overhang
-// mirrors it, so the rule's height is the block minus both insets.
-OG.RULE_TOP = OG.ROW_H / 2 - OG.DOT / 2 - S[5];
-OG.RULE_H = OG.ROWS_H - 2 * OG.RULE_TOP;
-
-// The palette, as literals, because a Worker has no stylesheet. These are the
-// only place tokens.css values are repeated, and they are the ones the card
-// uses: --surface, --figure, --figure-dim, --rule.
-const C = {
-  surface: '#0B0B12',
-  figure: '#FFFFFF',
-  dim: 'rgba(255,255,255,0.72)',
-  rule: 'rgba(255,255,255,0.28)',
-  ruleStrong: 'rgba(255,255,255,0.5)',
-};
-
-// The two type grades, matching the screen: condensed heavy for figures,
-// normal-width heavy for tracked chrome. See worker/index.js for the buffers.
-const FIGURE_FACE = "'Archivo Figure'";
-const LABEL_FACE = "'Archivo'";
+// A diamond, drawn. Percent-encoded rather than base64 so this stays pure string
+// work and runs unchanged in the browser, in Node and in a Worker.
+const GEM_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">`
+  + `<path fill="#5DADEC" d="M18 34 2 14h32z"/>`
+  + `<path fill="#8CCAF7" d="M2 14 8 4h20l6 10z"/>`
+  + `<path fill="#B9E2FB" d="M8 4l4 10h12L28 4z"/>`
+  + `<path fill="#4A9BDB" d="M12 14h12l-6 20z"/></svg>`;
+export const GEM_DATA_URI = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(GEM_SVG)}`;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const div = (style, body = '') => `<div style="display:flex;${style}">${body}</div>`;
-const abs = (style, body = '') => div(`position:absolute;${style}`, body);
+const box = (style) => `<div style="position:absolute;display:flex;${style}"></div>`;
+const text = (style, body) => `<div style="position:absolute;display:flex;${style}">${body}</div>`;
 
-// The two type roles, matching --track-label and --track-figure on screen.
-// Tracked uppercase for chrome; figures get almost none — a tracked numeral
-// column reads as decorative and stops looking like a measurement.
-const chrome = (extra = '') =>
-  `font-family:${LABEL_FACE};font-size:${OG.LABEL_SIZE}px;letter-spacing:${OG.TRACK_EM}px;${extra}`;
-const figure = (extra = '') =>
-  `font-family:${LABEL_FACE};font-size:${OG.LABEL_SIZE}px;letter-spacing:${OG.FIGURE_EM}px;${extra}`;
-
-function ogRow(row) {
+function ogRow(row, i) {
+  const y = OG.ROW_TOP + i * OG.ROW_H;
+  const dotX = OG.TRACK_X + row.fraction * OG.TRACK_W;
   const colour = TONES[row.tone].color;
-  const dotX = row.fraction * OG.TRACK_W;
 
-  // One mark per row. A round that ran off the scale keeps its dot at the end
-  // of the track, which is the same predicate `pegged` tests — no second marker
-  // is drawn for it, here or on screen.
-  const track = div(
-    `position:relative;width:${OG.TRACK_W}px;height:1px;background:${C.rule};`
-    + `margin:0 ${S[6]}px`,
-    abs(`left:${dotX - OG.DOT / 2}px;top:${-OG.DOT / 2}px;width:${OG.DOT}px;`
-      + `height:${OG.DOT}px;border-radius:${OG.DOT / 2}px;background:${colour}`),
-  );
+  const mark = row.isPerfect
+    ? `<img src="${GEM_DATA_URI}" width="${OG.GEM}" height="${OG.GEM}" style="position:absolute;left:${dotX - OG.GEM / 2}px;top:${y - OG.GEM / 2}px" />`
+    : box(`left:${dotX - OG.DOT / 2}px;top:${y - OG.DOT / 2}px;width:${OG.DOT}px;height:${OG.DOT}px;border-radius:${OG.DOT / 2}px;background:${colour}`)
+      // Pegged: a hard stop at the end of the axis, in the row's own colour, so a
+      // clipped value reads as clipped and not as a merely-large one.
+      + (row.pegged
+        ? box(`left:${(row.side === 'late'
+            ? OG.TRACK_X + OG.TRACK_W + OG.DOT / 2 + OG.PEG_GAP
+            : OG.TRACK_X - OG.DOT / 2 - OG.PEG_GAP - OG.PEG_W)}px;top:${y - OG.PEG_H / 2}px;width:${OG.PEG_W}px;height:${OG.PEG_H}px;background:${colour}`)
+        : '');
 
-  return div(
-    `height:${OG.ROW_H}px;align-items:center`,
-    div(`width:${OG.LABEL_W}px;${chrome(`color:${C.dim}`)}`, esc(row.label))
-    + track
-    + div(`width:${OG.VALUE_W}px;justify-content:flex-end;${figure(`color:${C.figure}`)}`,
-      esc(row.value)),
-  );
+  return text(`left:${OG.LABEL_X}px;top:${y - 10}px;font-size:19px;letter-spacing:3px;color:rgba(255,255,255,0.72)`, esc(row.label))
+    + box(`left:${OG.TRACK_X}px;top:${y}px;width:${OG.TRACK_W}px;height:1px;background:rgba(255,255,255,0.28)`)
+    + mark
+    + text(`left:${OG.VALUE_X}px;top:${y - 12}px;width:${OG.VALUE_W}px;justify-content:flex-end;font-size:23px;letter-spacing:2px;color:#fff`, esc(row.value));
 }
 
 export function renderCardHTML(model) {
-  const header = div(chrome(), `<div style="display:flex">KRONO</div>`
-    + `<div style="display:flex;margin-left:${S[3]}px;color:${C.dim}">#${esc(model.puzzleNumber)}</div>`);
-
-  const total = div(
-    `flex-direction:column;width:${OG.TOTAL_W}px`,
-    div(`font-family:${FIGURE_FACE};font-size:${OG.NUM_SIZE}px;line-height:1;letter-spacing:2px`,
-      model.totalSeconds.toFixed(2))
-    + div(`margin-top:${S[5]}px;${chrome(`color:${C.dim}`)}`, 'SECONDS OFF'),
-  );
-
-  const plot = div(
-    `position:relative;flex-direction:column;margin-left:${S[8]}px;width:${OG.PLOT_W}px`,
-    abs(`left:${OG.RULE_X}px;top:${OG.RULE_TOP}px;width:1px;height:${OG.RULE_H}px;`
-      + `background:${C.ruleStrong}`)
-    + model.rows.map(ogRow).join(''),
-  );
-
-  // Header, body, and a footer slot the same height as the header — the
-  // `chrome / 1fr / chrome` rhythm the results screen uses. Reserving the
-  // footer is what keeps the body optically centred in the frame rather than
-  // sitting low under the title.
-  return `<div style="width:${OG.W}px;height:${OG.H}px;background:${C.surface};`
-    + `color:${C.figure};display:flex;flex-direction:column;padding:${OG.PAD}px;`
-    + `font-family:${LABEL_FACE}">`
-    + header
-    + div(`flex-grow:1;align-items:center`, total + plot)
-    + div(`height:${OG.HEAD_SIZE}px`)
-    + `</div>`;
+  const centreX = OG.TRACK_X + OG.TRACK_W / 2;
+  const top = OG.RULE_TOP;
+  const bottom = OG.RULE_BOTTOM;
+  return `<div style="width:${OG.W}px;height:${OG.H}px;background:#0B0B12;color:#fff;position:relative;display:flex;font-family:Archivo">
+    <div style="position:absolute;left:${OG.PAD}px;top:${OG.HEAD_Y}px;display:flex;align-items:center">
+      <div style="display:flex;font-size:40px;font-weight:800;letter-spacing:8px">KRONO</div>
+      <div style="display:flex;margin-left:10px;font-size:32px;font-weight:800;letter-spacing:6px;color:rgba(255,255,255,0.42)">#${esc(model.puzzleNumber)}</div>
+    </div>
+    ${text(`left:${OG.PAD}px;top:${OG.NUM_Y}px;font-family:'Squada One';font-size:170px;letter-spacing:2px`, model.totalSeconds.toFixed(2))}
+    ${text(`left:${OG.PAD + 4}px;top:${OG.UNIT_Y}px;font-size:22px;font-weight:800;letter-spacing:6px;color:rgba(255,255,255,0.72)`, 'SECONDS OFF')}
+    ${box(`left:${centreX}px;top:${top}px;width:1px;height:${bottom - top}px;background:rgba(255,255,255,0.5)`)}
+    ${model.rows.map(ogRow).join('')}
+  </div>`;
 }
 
 export const OG_SIZE = { width: OG.W, height: OG.H };
-export const CARD_COLORS = C;
-export const CARD_METRICS = OG;

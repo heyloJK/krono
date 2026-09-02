@@ -13,36 +13,27 @@
 // The card is drawn from cardModel() in js/scorecard.js, the same model the
 // in-app screen renders, so the image and the screen cannot drift apart.
 
-import { ImageResponse } from 'workers-og';
+import { ImageResponse, loadGoogleFont } from 'workers-og';
 import { decodeResult } from '../js/share.js';
-import {
-  cardModel, renderCardHTML, OG_SIZE, CARD_VERSION, CARD_COLORS,
-} from '../js/scorecard.js';
+import { cardModel, renderCardHTML, OG_SIZE, CARD_VERSION } from '../js/scorecard.js';
 
-// Satori needs real font buffers — it has none of its own, and it does not
-// implement variable-font axes. The screen sets its figures with
-// `font-variation-settings: 'wdth' 62` on the variable Archivo; the card cannot,
-// so the two grades the card uses are shipped as pre-instanced static TTFs
-// (fonts/archivo-figure.ttf and fonts/archivo-label.ttf, generated from the same
-// source file the browser loads). Same family, same instances, so the image and
-// the screen set the same shapes at the same widths.
+// Satori needs real font buffers — it has none of its own and reads no woff2.
+// workers-og ships a Google Fonts loader that handles that; memoise the result
+// per isolate so it costs one fetch per cold start, not one per card.
 //
-// They come from this Worker's own assets rather than from Google, so a card
-// render depends on no third-party fetch. Memoised per isolate: one read per
-// cold start, not one per card.
-const FONT_FILES = [
-  { name: 'Archivo Figure', path: '/fonts/archivo-figure.ttf' },
-  { name: 'Archivo', path: '/fonts/archivo-label.ttf' },
-];
-
+// Two faces, matching the in-app card exactly: the display face for the total,
+// Archivo for everything else. A card that used a different typeface from the
+// screen would be a second design pretending to be the same one.
 let fontsPromise = null;
-function loadFonts(env, origin) {
+function loadFonts() {
   if (!fontsPromise) {
-    fontsPromise = Promise.all(FONT_FILES.map(async ({ name, path }) => {
-      const res = await env.ASSETS.fetch(new Request(new URL(path, origin)));
-      if (!res.ok) throw new Error(`font ${path} ${res.status}`);
-      return { name, data: await res.arrayBuffer(), weight: 800, style: 'normal' };
-    })).catch((err) => { fontsPromise = null; throw err; }); // don't cache a failure
+    fontsPromise = Promise.all([
+      loadGoogleFont({ family: 'Archivo', weight: 800 }),
+      loadGoogleFont({ family: 'Squada One', weight: 400 }),
+    ]).then(([archivo, squada]) => ([
+      { name: 'Archivo', data: archivo, weight: 800, style: 'normal' },
+      { name: 'Squada One', data: squada, weight: 400, style: 'normal' },
+    ])).catch((err) => { fontsPromise = null; throw err; }); // don't cache a failure
   }
   return fontsPromise;
 }
@@ -76,29 +67,18 @@ function sharePage(card, code, origin) {
 <meta name="twitter:title" content="${esc(title)}" />
 <meta name="twitter:description" content="${esc(desc)}" />
 <meta name="twitter:image" content="${esc(image)}" />
-<link rel="preload" href="/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Squada+One&family=Archivo:wght@700;800;900&display=swap" rel="stylesheet" />
 <style>
-  /* The same tokens as the app, inlined: this page is one screen served by a
-     Worker and is not worth a stylesheet request. Same typeface, same scale,
-     same radius, same single button treatment. */
-  @font-face { font-family:'Archivo'; font-style:normal; font-weight:500 900;
-    font-stretch:62% 125%; font-display:block;
-    src:url(/fonts/archivo-latin.woff2) format('woff2'); }
   :root { color-scheme: dark; }
-  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body { margin:0; min-height:100dvh; background:${CARD_COLORS.surface}; color:${CARD_COLORS.figure};
-         font-family:'Archivo',ui-sans-serif,system-ui,sans-serif; font-weight:500;
+  body { margin:0; min-height:100dvh; background:#0B0B12; color:#fff;
+         font-family:'Archivo',ui-sans-serif,system-ui,sans-serif;
          display:flex; flex-direction:column; align-items:center; justify-content:center;
-         gap:48px; padding:max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
-         text-align:center; }
-  ::selection { background:${CARD_COLORS.figure}; color:${CARD_COLORS.surface}; }
-  img { width:100%; max-width:760px; height:auto; border-radius:12px; }
-  a { display:inline-flex; align-items:center; justify-content:center; min-height:72px;
-      background:transparent; color:${CARD_COLORS.figure}; text-decoration:none;
-      border:2px solid ${CARD_COLORS.figure}; border-radius:999px;
-      font-weight:800; font-size:19px; letter-spacing:.2em; padding:16px 48px 16px 51.8px; }
-  a:hover, a:focus-visible { background:${CARD_COLORS.figure}; color:${CARD_COLORS.surface}; }
-  a:focus-visible { outline:2px solid ${CARD_COLORS.figure}; outline-offset:4px; }
+         gap:28px; padding:32px; text-align:center; }
+  img { width:100%; max-width:760px; height:auto; border-radius:14px; }
+  a { display:inline-block; background:#fff; color:#0B0B12; text-decoration:none;
+      font-weight:800; letter-spacing:.14em; padding:16px 42px; border-radius:999px; }
 </style>
 </head><body>
 <img src="${esc(image)}" width="${OG_SIZE.width}" height="${OG_SIZE.height}"
@@ -119,7 +99,7 @@ export default {
         return new ImageResponse(renderCardHTML(cardModel(input)), {
           width: OG_SIZE.width,
           height: OG_SIZE.height,
-          fonts: await loadFonts(env, url.origin),
+          fonts: await loadFonts(),
           headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
         });
       } catch (err) {

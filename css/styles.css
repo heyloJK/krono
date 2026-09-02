@@ -1,755 +1,576 @@
-/* styles.css — Krono.
+/* Chrono — bold, colorful, minimal.
+   Each screen is a full-bleed colour field. Huge condensed numerals (Anton),
+   clean labels (Archivo), white pill buttons. Content is stripped to the bone.
 
-   All values come from tokens.css. There is no literal colour, size, duration
-   or radius below this line.
+   RULE: nothing animates on a repeating cycle — no pulses, spinners or looping
+   keyframes; any loop is a metronome and compromises the game. This is a
+   correctness requirement, not a style preference. Round 4's tick marker flashes
+   for a single frame at jittered, non-periodic intervals (see js/daily.js), with
+   no transition to soften the onset. One-shot entrances live only where timing is
+   over: landing, the per-round result, and the final results (see "Entrances"). */
 
-   THE MOTION RULE, which is a correctness requirement and not a preference:
-   nothing in this product animates on a repeating cycle, and nothing at all
-   animates during a round. A player who entrains to any period carries it into
-   a measurement, and the measurement is then of the animation rather than of
-   them. `.round-screen` forces every duration to zero; outside it there are two
-   durations and one curve, both one-shot.
+:root {
+  --blue:   #3121FF;   /* round 1 + the Perfect screen */
+  --pink:   #FF2D8B;   /* round 2 */
+  --purple: #7A3CFF;   /* rounds 3 & 4 */
+  --brain:  #FE2E8A;   /* round 5 (brain game) */
+  --perfect: #0B8CFF;  /* the Perfect screen base */
+  --lime:   #C6FF3A;   /* results total accent */
+  --ink:    #0B0B12;
+  --white:  #FFFFFF;
 
-   There is exactly ONE @keyframes in this file. It is a fade from opacity 0 to
-   opacity 1, it runs once on mount, it is used on two screens (the landing and
-   the results) and it is switched off entirely inside a round. `infinite` and
-   `animation-iteration-count` appear nowhere. If you add a second keyframe
-   block, you are almost certainly adding a period. */
+  /* Result-screen band colours (perfect rides the blue Perfect screen). */
+  --green:  #27BF46;   /* offset < 20cs */
+  --yellow: #F79B1B;   /* offset 20–49cs */
+  --red:    #FF4A21;   /* offset 50cs+  */
+
+  --screen-bg: var(--blue);
+  --on-bg: #ffffff;
+
+  --display: 'Squada One', 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --maxw: 620px;
+
+  /* Strong ease-out for UI (the built-in one is too weak). One curve, shared. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
 
 * { box-sizing: border-box; }
 
-html {
-  background: var(--screen-bg, var(--surface));
-  /* Set explicitly rather than left to the UA: an unstyled overscroll gutter
-     flashing the browser's own background is the cheapest possible tell. */
-  overscroll-behavior: none;
-  scrollbar-color: var(--figure-dim) transparent;
-}
-
-/* A field and its text colour travel together. `.on-dark` fields (blue,
-   purple, the surface) take the light figure; `.on-light` fields (green,
-   orange, red, pink, the Perfect burst) take ink. Nothing below names a text
-   colour directly — it reads --on-field — so a field can never be paired with
-   type it fails contrast against. */
-body.on-dark  { --on-field: var(--figure); }
-body.on-light { --on-field: var(--ink); }
-
-body {
-  margin: 0;
-  min-height: 100%;
-  background: var(--screen-bg, var(--surface));
-  color: var(--on-field);
-  font-family: var(--face);
-  font-weight: var(--w-normal);
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--screen-bg);
+  color: var(--on-bg);
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
-  /* No transition. The field colour changes between screens; ramping it over
-     180ms meant the colour on screen was never the colour in the palette, and
-     gave a player a 180ms reference on the way into a round. */
+  transition: background-color 180ms ease; /* between-screen colour change, not a loop */
 }
-
-::selection { background: var(--on-field); color: var(--screen-bg, var(--surface)); }
-
-/* No blue flash on iOS. Every control below defines its own press state. */
-* { -webkit-tap-highlight-color: transparent; }
+@media (prefers-reduced-motion: reduce) { html, body { transition: none; } }
 
 #app {
   min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  /* THE page margin — one token, all four sides, safe areas honoured on every
-     edge including left/right, which landscape notches need and which the old
-     rule omitted. */
-  padding:
-    max(var(--page), env(safe-area-inset-top))
-    max(var(--page), env(safe-area-inset-right))
-    max(var(--page), env(safe-area-inset-bottom))
-    max(var(--page), env(safe-area-inset-left));
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
   text-align: center;
 }
 
 .round-screen {
   -webkit-user-select: none; user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: manipulation;
-}
-/* A round is running. Everything stops. This is the scope that makes the rule
-   enforceable rather than a habit: any transition added to any descendant
-   later, by anyone, resolves to zero here. */
-.round-screen,
-.round-screen * {
-  --dur-state: 0ms;
-  --dur-view: 0ms;
+  -webkit-touch-callout: none; touch-action: manipulation;
 }
 
-/* ==========================================================================
-   The stage — ONE layout for all five round screens
-   ==========================================================================
-   Five fixed rows. The measurement always occupies the `figure` row, so its
-   box sits at the identical y on every round regardless of how much copy is
-   above or below it. The old layout centred a flex column, which meant round 4
-   (three lines) drew its "Stop at" 31px higher than round 1 (two lines) drew
-   the identical words. Only the contents of the field row differ between
-   rounds; the chrome does not move.
-
-     chrome   round counter
-     lead     the line that frames the figure, bottom-aligned onto it
-     figure   THE MEASUREMENT
-     note     anything the field needs below it (options, format, submit)
-     chrome   the instruction
-*/
-.stage {
-  --slot-chrome: var(--s7);
-  --slot-lead: var(--s7);
-  --slot-figure: calc(var(--t-hero) * var(--lead-solid));
-
-  width: 100%;
-  max-width: 46rem;
-  /* Fills the padded box, not the raw viewport: `min-height: 100dvh` here would
-     add the page margin on top of a full-height child and push the bottom
-     chrome under the home indicator. */
-  flex: 1;
-  display: grid;
-  /* The slack is split ABOVE and BELOW the content, not dumped at the bottom.
-     With it all below, an intro screen with no measurement left its copy in the
-     top third over 500px of dead field. Both 1fr rows are equal, so the
-     lead/figure/note block sits at the optical centre — and because the lead
-     and figure slots are FIXED, rounds 1, 2 and 4 still place "Stop at" and
-     their target on the identical pixel row as each other. */
-  grid-template-rows:
-    var(--slot-chrome)
-    1fr
-    var(--slot-lead)
-    var(--slot-figure)
-    auto
-    1fr
-    var(--slot-chrome);
-  justify-items: center;
+.screen {
+  width: 100%; max-width: var(--maxw);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 28px;
 }
 
-/* A screen with no measurement — the round 3 and round 5 intros. Collapsing
-   the figure slot closes the 144px hole that opened between the copy and the
-   note when nothing was there to fill it. Applied automatically by stage()
-   whenever the figure slot is empty. */
-.stage.intro { --slot-figure: 0px; }
-.stage.intro .note { margin-top: var(--s6); }
+/* --- Type ---------------------------------------------------------------- */
+.label {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(15px, 4.5vw, 20px);
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  margin: 0;
+}
+.kicker {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin: 0;
+}
+.hero {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(96px, 32vw, 200px);
+  line-height: 0.82;
+  letter-spacing: 0.01em;
+  margin: 0;
+  font-feature-settings: "tnum" 1;
+}
+.hero.sm { font-size: clamp(72px, 22vw, 150px); }
+.wordmark {
+  font-family: var(--display);
+  font-size: clamp(80px, 26vw, 170px);
+  line-height: 0.84;
+  margin: 0;
+  letter-spacing: 0.005em;
+}
+.prompt {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(20px, 6vw, 30px);
+  line-height: 1.1;
+  margin: 0;
+  max-width: 14ch;
+}
+.sub { font-family: var(--sans); font-weight: 600; font-size: 15px; opacity: 0.8; margin: 0; }
 
-/* The counter sits at the LEFT end of the top chrome row, with the sound
-   toggle at the right end — two ends of one header line, which is also where
-   the results screen puts its header. Centred, it collided with the toggle on a
-   narrow screen. */
+/* --- The stage: one 3-zone layout for every round screen ----------------- *
+   Top counter (.rk), vertically-centred content (.mid), bottom hint (.hint).
+   .rk and .hint are pinned to the viewport so .mid always sits dead-centre. */
+.stage { position: relative; }
 .rk {
-  grid-row: 1;
-  align-self: start;
-  justify-self: start;
-  /* Fills the chrome slot and centres inside it, so its text lands on the same
-     optical line as the sound toggle at the other end of the row — both sit
-     half a slot below the page margin. */
-  height: 100%;
-  display: flex;
-  align-items: center;
-  margin: 0;
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  font-variant-numeric: tabular-nums;
+  position: fixed; top: max(24px, env(safe-area-inset-top)); left: 0; right: 0;
+  margin: 0; text-align: center;
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(13px, 2.4vw, 16px); letter-spacing: 0.25em;
+  opacity: 0.9;
 }
-
-/* The framing line. Bottom-aligned so it always sits the same distance above
-   the figure, whether it is one line or two. */
-.lead {
-  grid-row: 3;
-  align-self: end;
-  margin: 0 0 var(--s3);
-  font-size: var(--t-lead);
-  font-weight: var(--w-normal);
-  line-height: var(--lead-text);
-  max-width: 18ch;
-  text-wrap: balance;   /* never leave a single orphaned word */
+.mid {
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(10px, 2vh, 20px); width: 100%;
 }
-
-.field {
-  grid-row: 4;
-  align-self: center;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.note {
-  grid-row: 5;
-  align-self: start;
-  width: 100%;
-  margin: var(--s5) 0 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--s4);
-}
-.note p { margin: 0; }
-
 .hint {
-  grid-row: 7;
-  align-self: end;
-  margin: 0;
-  font-size: var(--t-body);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-figure);
+  position: fixed; bottom: max(28px, env(safe-area-inset-bottom)); left: 0; right: 0;
+  margin: 0; text-align: center;
+  font-family: var(--sans); font-weight: 500;
+  font-size: clamp(16px, 2.4vw, 22px); opacity: 0.95;
 }
-.hint .key { letter-spacing: var(--track-label); padding-left: var(--track-label); }
+.hint .key { font-weight: 600; letter-spacing: 0.35em; }
+.hint .key::before { content: "[ "; letter-spacing: normal; }
+.hint .key::after  { content: "]"; letter-spacing: normal; }
 
-/* ---- The figure ---------------------------------------------------------
-   Every numeric display in the product goes through .fig. Tabular figures,
-   fixed slot, no layout shift as digits change — the one thing this product
-   cannot get wrong. */
-.fig {
-  margin: 0;
-  font-size: var(--t-hero);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' var(--width-figure);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-figure);
-  line-height: var(--lead-solid);
-  /* The sign is part of the column. A signed reading and an unsigned one must
-     not sit at different x, so the slot is wide enough for the sign either way
-     and the digits are centred within it. */
-  font-feature-settings: 'tnum' 1, 'lnum' 1;
+/* The friendly sentence-case line above a big value. */
+.cue {
+  font-family: var(--sans); font-weight: 500;
+  font-size: clamp(20px, 4vw, 28px); line-height: 1.1;
+  margin: 0; opacity: 0.96;
 }
-/* A word in the display grade — "Running". Not a number, so no tabular slot. */
-.fig.word { font-variant-numeric: normal; }
-/* Secondary display grade: the entered value, the equation. */
-.fig.sm { font-size: var(--t-display); }
+.cue.tiny { font-size: clamp(14px, 2.4vw, 17px); opacity: 0.8; }
 
-/* The target held small while a round runs. Same face, same tabular slot, so
-   it cannot reflow under a player who is watching it. */
-.ref {
-  margin: 0 0 var(--s2);
-  font-size: var(--t-body);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' var(--width-figure);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-figure);
+/* Display-font intro line (round 3 & 5 prompts). */
+.prompt-xl {
+  font-family: var(--display); font-weight: 400;
+  font-size: clamp(40px, 9vw, 88px); line-height: 0.98;
+  letter-spacing: 0.01em; margin: 0; max-width: 14ch;
 }
 
-/* Round 4's post-round line — the only place the day's bias is ever stated,
-   and the whole tutorial for that round. Sentence case, because it is a
-   sentence; the tracked uppercase note-line below is for labels. */
-.drift {
-  font-size: var(--t-body);
-  text-wrap: balance;
-  font-weight: var(--w-normal);
-  line-height: var(--lead-text);
-  max-width: 26ch;
-}
+/* Word-shaped hero values ("Running") need to fit their width, unlike digits. */
+.hero.word { font-size: clamp(64px, 16vw, 132px); }
 
-/* A tracked label under the figure — the unit, and the short state lines. */
-.note-line {
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding-left: var(--track-label);
-}
-
-/* The landing is a stage too — same five rows, same chrome positions. The
-   wordmark occupies the figure row, so KRONO sits exactly where every round's
-   measurement will sit. Six surfaces, one layout, no landing-specific CSS. */
-
-/* ==========================================================================
-   The Perfect screen
-   ==========================================================================
-   A dead-zero offset. The rarest outcome in the game, so it keeps its own
-   field: a cyan core fading out to deep blue, with sparse navy speed-line rays
-   over it. Restored at the designer's request after I had cut it.
-
-   The type is INK, not the white the old build used. Measured across the part
-   of the gradient the viewport actually shows, white runs 1.51:1 at the core
-   and 2.73:1 a third of the way out; ink runs 13.03 and 7.18. The burst is
-   unchanged — it is the same five stops — it just carries legible type now.
-
-   MOTION: the burst fades and swings in ONCE and then holds. It is the single
-   place in the product where anything moves on a round screen, and it is here
-   only because the designer asked for the screen back in full. It is a long,
-   heavily-eased, one-shot event on a terminal screen rather than a crisp
-   repeatable cue, which makes it a poor reference to entrain to — but it is an
-   exception to the rule, not an application of it. If round scores ever start
-   drifting after a Perfect, this is the first thing to delete. */
-/* Lift the content above the burst. The burst itself must be EXCLUDED: this
-   selector out-specifies `.perfect-burst`, so without the :not() it overrides
-   `position: fixed` and the burst becomes a 300vmax block in the grid flow
-   that swallows the whole screen. */
-.stage.perfect > *:not(.perfect-burst) {
-  position: relative;
-  z-index: var(--z-chrome);
-}
+/* The Perfect screen — a comic-book burst: a cyan core fading to deep blue,
+   navy speed-line rays, and a halftone dot texture. Counter and hint keep the
+   stage's pinned top/bottom; .mid and the burst layers get an explicit z-order. */
+.perfect .rk, .perfect .hint { z-index: 1; }
 .perfect-burst {
-  position: fixed;
-  left: 50%; top: 100%;            /* the rays converge at bottom-centre */
+  position: fixed; left: 50%; top: 100%;    /* rays converge at bottom-centre */
   width: 300vmax; height: 300vmax;
   transform: translate(-50%, -50%);
-  z-index: var(--z-base);
+  z-index: 0;
   background:
-    repeating-conic-gradient(from 0deg at 50% 50%,
-      transparent 0deg 12deg, var(--burst-ray) 12deg 15deg),
-    repeating-conic-gradient(from 7.5deg at 50% 50%,
-      var(--burst-wedge) 0deg 5deg, transparent 5deg 15deg),
-    radial-gradient(circle at 50% 50%,
-      var(--burst-core) 0%, var(--burst-1) 34%,
-      var(--burst-2) 66%, var(--burst-edge) 100%);
+    /* sparse navy rays (~24) — very low contrast so it reads as a gentle backdrop */
+    repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 12deg, rgba(8,26,110,0.13) 12deg 15deg),
+    /* faint light wedges, offset between the rays */
+    repeating-conic-gradient(from 7.5deg at 50% 50%, rgba(170,225,255,0.04) 0deg 5deg, transparent 5deg 15deg),
+    /* bright cyan-tinted core → vivid blue glow */
+    radial-gradient(circle at 50% 50%, #7BE0FF 0%, #3FA0FF 34%, #1C7DFB 66%, #0B5EEF 100%);
 }
+.perfect .mid { position: relative; z-index: 1; }
+.hero.perfect-word { font-size: clamp(80px, 20vw, 200px); line-height: 0.9; }
 
-/* ==========================================================================
-   Controls — one implementation per job
-   ==========================================================================
-   Primary (.btn) and secondary (.btn.alt) share every dimension and differ only
-   in fill. There is no third button: the old build had six treatments.
+/* Transparent full-screen tap layer (begin / stop / advance by tapping). */
+.tapzone { position: fixed; inset: 0; background: transparent; border: 0; cursor: pointer; }
 
-   PRESS FEEDBACK IS AN INSTANT CONTRAST CHANGE, never a transform and never
-   eased. The old 140ms/70ms translate ran on `.option`, which is the control
-   that ENDS a timed measurement in round 5 — a calibrated 70ms cue on the exact
-   press being measured. */
+/* Landing --------------------------------------------------------------- */
+.landing { gap: clamp(28px, 5vh, 44px); }
+.prompt.lead {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(24px, 5.2vw, 40px);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  max-width: 20ch;
+  opacity: 0.95;
+}
+.landing-foot {
+  position: fixed; left: 0; right: 0; bottom: max(28px, env(safe-area-inset-bottom));
+  margin: 0; text-align: center;
+  font-family: var(--display);
+  font-size: clamp(14px, 2.4vw, 18px);
+  letter-spacing: 0.14em;
+  opacity: 0.85;
+}
+.landing-foot .dot { opacity: 0.5; margin: 0 0.3em; }
+
+/* --- Buttons ------------------------------------------------------------- */
 .btn {
-  font-family: var(--face);
-  font-size: var(--t-body);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding-left: calc(var(--s7) + var(--track-label));
-  padding-right: var(--s7);
-  padding-block: var(--s4);
-  /* A control is its OWN surface, not a knockout of the field: a white plate
-     with ink on it, which is 19.6:1 whatever field it sits on. That is also the
-     original design — white pills and white answer cards.
-     --on-field governs type sitting DIRECTLY on the field (the counter, the
-     hint, the figure); a control does not inherit it, because a control brings
-     its own background. The two are separate decisions and were briefly, and
-     wrongly, the same one. */
+  font-family: var(--display);
+  font-size: clamp(22px, 6vw, 30px);
+  letter-spacing: 0.04em;
   color: var(--ink);
-  background: var(--figure);
-  border: var(--border-w) solid var(--figure);
-  border-radius: var(--r-pill);
+  background: var(--white);
+  border: 0;
+  border-radius: 999px;
+  padding: 18px 56px;
   cursor: pointer;
+  min-width: 220px;
   line-height: 1;
-  min-height: var(--s8);   /* 44pt floor, comfortably */
-  min-width: 13rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color var(--dur-state) var(--ease),
-              color var(--dur-state) var(--ease);
+  transition: transform 140ms var(--ease-out);
 }
-/* Pressed: the plate empties out and the label joins the field. */
-.btn:active {
-  background: transparent; color: var(--on-field);
-  border-color: var(--on-field); transition: none;
-}
-.btn.alt { background: transparent; color: var(--on-field); border-color: var(--on-field); }
-.btn.alt:active { background: var(--figure); color: var(--ink); border-color: var(--figure); }
-
+/* Press feedback is one-shot response to the user's own tap — not a period.
+   Instant-ish on the way down, eased back on release (the transition above). */
+.btn:active { transform: translateY(2px) scale(0.985); transition-duration: 70ms; }
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover { background: transparent; color: var(--on-field); border-color: var(--on-field); }
-  .btn.alt:hover { background: var(--figure); color: var(--ink); border-color: var(--figure); }
+  .btn:hover { transform: translateY(-1px); }
 }
-
-/* A text-weight action. Same type as the chrome, so it reads as chrome. */
-.linkbtn {
-  background: none;
-  border: 0;
-  cursor: pointer;
-  color: var(--on-field);
-  font-family: var(--face);
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding: var(--s3) var(--s4);
-  padding-left: calc(var(--s4) + var(--track-label));
-  min-height: var(--s7);   /* the visible text is smaller than the target */
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
+  .btn:hover { transform: none; }
+}
+/* Landing START: white pill inside a white ring with a coloured gap (mockup). */
+.btn.ring { box-shadow: 0 0 0 6px var(--screen-bg), 0 0 0 8px var(--white); }
+.btn.ghost {
+  background: transparent;
+  color: var(--on-bg);
+  border: 2px solid currentColor;
+  opacity: 0.85;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  padding: 12px 26px;
+  min-width: 0;
+}
+.testlink {
+  background: none; border: 0; cursor: pointer;
+  color: var(--on-bg); opacity: 0.6;
+  font-family: var(--sans); font-weight: 700; font-size: 13px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 8px;
 }
 
-/* Focus is deliberate and identical everywhere: a ring in the figure colour,
-   offset clear of the control, with a contrasting inner edge so it stays
-   visible on a white button as well as on a colour field. Never the UA
-   default. */
-:focus-visible {
-  outline: var(--border-w) solid var(--on-field);
-  outline-offset: var(--s1);
-  box-shadow: 0 0 0 var(--s1) var(--screen-bg, var(--surface));
-}
-
-/* ==========================================================================
-   The measurement fields
-   ========================================================================== */
-
-/* Full-screen tap layer — begin / stop / advance by tapping anywhere. */
-.tapzone {
+/* --- Full-viewport tap target (rounds 1 & 2) ----------------------------- */
+.tap {
   position: fixed; inset: 0;
-  background: transparent; border: 0; cursor: pointer;
-  z-index: var(--z-base);
+  width: 100vw; height: 100dvh;
+  border: 0; background: var(--screen-bg); color: var(--on-bg);
+  font-family: var(--sans);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px; cursor: pointer;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
 }
+.tap .state {
+  font-family: var(--display);
+  font-size: clamp(72px, 22vw, 150px);
+  line-height: 0.85;
+}
+.tap .kicker { position: absolute; top: 28px; left: 0; right: 0; }
+.tap #face { display: flex; flex-direction: column; gap: 22px; }
+.tap #face .label { opacity: 0.85; }
 
-/* Rounds 3 and 5 — the entered value.
-   Right-aligned in a fixed slot: a centred field grows outward from the middle
-   as you type, which moves the digits you have already entered. The caret is
-   suppressed because a blinking caret is a ~1Hz metronome, on a screen whose
-   whole purpose is to measure a player uncontaminated by one. */
-.entry {
-  font-family: var(--face);
-  font-size: var(--t-display);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' var(--width-figure);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-figure);
-  line-height: var(--lead-solid);
-  text-align: right;
+/* --- Numeric guess input (rounds 3, 5) ------------------------------------ */
+.guess { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+.guess input {
+  font-family: var(--display);
+  font-size: clamp(56px, 18vw, 110px);
+  text-align: center;
   color: var(--ink);
-  background: var(--figure);
-  border: 0;
-  border-radius: var(--r-field);
-  caret-color: transparent;
-  padding: var(--s2) var(--s4);
-  width: 100%;
-  max-width: 9ch;
+  background: var(--white);
+  border: 0; border-radius: 18px;
+  padding: 8px 8px; width: 100%; max-width: 420px;
+  line-height: 1;
 }
-.entry::placeholder { color: var(--ink); opacity: 0.28; }
+.guess input:focus-visible { outline: 4px solid rgba(255,255,255,0.6); outline-offset: 4px; }
+.fmthint { font-family: var(--sans); font-weight: 600; font-size: 13px; opacity: 0.7; margin: 0; }
 
-.fmt {
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding-left: var(--track-label);
-}
+/* --- Round 4 — Drift ticks -----------------------------------------------
+   The visual half of the tick is the ellipsis of "Running…": three dots held
+   dim, one lighting per tick. It is an instant class swap with NO transition,
+   NO keyframes, no easing — a fade would smear the onset, and anything with a
+   period would be a metronome, which is precisely what this round is built to
+   deny the player.
 
-/* Round 4 — the drift ticks.
-   The visual half of a tick is the ellipsis of "Running", three dots held dim
-   with one lighting per tick. Instant class swap: NO transition, NO keyframes,
-   no easing. A fade would smear the onset and hand back a softer, more
-   entrainable edge, and anything with a period would be the metronome this
-   round exists to deny. Only opacity changes, so the dots hold their space and
-   a tick can never reflow the line. */
+   Only opacity changes, so the dots hold their space and a tick can never
+   reflow the line. They light one at a time and go straight back to dim rather
+   than filling up and staying: once the ticks stop at the blackout the screen
+   looks exactly as it did before the first one, and never becomes a record of
+   how far the train got. */
 .dots { white-space: nowrap; }
-.dots > span { opacity: 0.28; }
+.dots > span { opacity: 0.2; }
 .dots > span.lit { opacity: 1; }
 
-/* Round 5 — the answers. */
-.options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s3);
-  width: 100%;
-  max-width: 28rem;
-}
+/* --- Round 5 options ----------------------------------------------------- */
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; max-width: 460px; }
 .option {
   position: relative;
-  font-family: var(--face);
-  font-size: var(--t-display);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' var(--width-figure);
-  font-variant-numeric: tabular-nums;
-  line-height: var(--lead-solid);
+  font-family: var(--display);
+  font-size: clamp(34px, 10vw, 56px);
   color: var(--ink);
-  background: var(--figure);
-  border: var(--border-w) solid var(--figure);
-  border-radius: var(--r-field);
-  padding: var(--s4) 0;
-  min-height: var(--s8);
-  cursor: pointer;
-  /* No transition. This press ends the timed interval. */
+  background: var(--white);
+  border: 0; border-radius: 18px;
+  padding: 22px 0; cursor: pointer; line-height: 1;
+  transition: transform 140ms var(--ease-out);
 }
-.option:active {
-  background: transparent; color: var(--on-field); border-color: var(--on-field);
-}
+.option:active { transform: translateY(2px) scale(0.985); transition-duration: 70ms; }
 @media (hover: hover) and (pointer: fine) {
-  .option:hover {
-    background: transparent; color: var(--on-field); border-color: var(--on-field);
-  }
+  .option:hover { transform: translateY(-1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .option { transition: none; }
+  .option:hover { transform: none; }
 }
 .okey {
-  position: absolute; top: var(--s2); left: var(--s3);
-  font-size: var(--t-micro);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' 100;
-  letter-spacing: var(--track-figure);
-  color: currentColor;
-  opacity: 0.45;
+  position: absolute; top: 8px; left: 10px;
+  font-family: var(--sans); font-weight: 800; font-size: 12px;
+  color: var(--ink); opacity: 0.4;
 }
 
-/* ==========================================================================
-   The score card — the results screen AND the shared image
-   ==========================================================================
-   These are one object. The card's geometry lives in js/scorecard.js as
-   numbers; this stylesheet reproduces the same proportions for the screen.
-   Header left, total left, plot right, everything aligned to one baseline
-   grid — the old screen centred its header and total while the image
-   left-aligned both, which is what made them read as two designs of one
-   dataset. */
-/* The results screen keeps the stage's chrome rhythm: its header sits in the
-   same top slot at the same height as a round's counter, and its footer in the
-   same bottom slot as a round's hint. Content between them is the card. */
-.sheet {
-  width: 100%;
-  max-width: 62rem;
-  flex: 1;
-  display: grid;
-  grid-template-rows: var(--slot-chrome, var(--s7)) 1fr var(--slot-chrome, var(--s7));
-  text-align: left;
-  justify-items: stretch;
-}
-.sheet > .cd-head { align-self: start; }
-.sheet > .links { align-self: end; justify-content: start; }
-
-.card {
-  align-self: center;
-  width: 100%;
-  display: grid;
-  gap: var(--s7);
+/* --- Results (must fit one viewport, no scroll) -------------------------- */
+/* Sizes are viewport-height aware so the whole card fits without scrolling. */
+/* --- The score card ------------------------------------------------------
+   Two columns on a wide viewport: the day's total on the left, one axis row per
+   round on the right. This is the artifact SHARE sends (the OG image renders the
+   same model — see js/scorecard.js), so it is laid out as something to post, not
+   as a diagnostic readout. */
+.results.card {
+  /* Wide, but the gap between the halves is now an explicit column gap rather
+     than slack in a fractional column — which is what stranded them at opposite
+     edges before. */
+  max-width: 1100px;
+  gap: clamp(20px, 4vh, 44px);
+  align-items: stretch;
   text-align: left;
 }
+/* Same scale as .kicker and .rk — this is a screen label, not a headline; the
+   total below it is the only thing on this screen that should shout. Centred at
+   every width and set apart from the body, so it reads as the page's title in
+   the same way .rk does on the round screens, rather than as the card's first
+   line. */
 .cd-head {
-  margin: 0;
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(13px, 1.5vw, 16px); letter-spacing: 0.24em;
+  margin: 0 0 clamp(16px, 5vh, 56px);
+  text-align: center;
 }
-.cd-head .n { color: var(--figure-dim); }
+.cd-head .n { color: rgba(255,255,255,0.42); }
+/* The card body is left-aligned, but the controls stay centred under the whole
+   card as drawn, not under the left column. */
+.results.card .btnrow, .results.card .links { margin-inline: auto; }
+/* The CTAs are a separate beat from the card, so they get more air than the
+   card's own internal rhythm gives them. */
+.results.card .btnrow { margin-top: clamp(14px, 4vh, 40px); }
 
 .cd-body {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  column-gap: var(--s8);
+  /* The total column is sized to its CONTENT, not to a fraction of the row —
+     a fractional column leaves the short left-hand text floating against the
+     far edge with a gap the eye reads as a break between two unrelated things. */
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: center; gap: clamp(24px, 7vw, 120px);
 }
 .cd-total { min-width: 0; }
 .cd-num {
-  margin: 0;
-  font-size: var(--t-hero);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' var(--width-figure);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-figure);
-  line-height: var(--lead-solid);
+  font-family: var(--display); font-weight: 400;
+  font-size: clamp(72px, 12vw, 150px); line-height: 0.82;
+  margin: 0; letter-spacing: 0.01em; font-feature-settings: "tnum" 1;
 }
 .cd-unit {
-  /* The same gap the shared image puts between the total and its unit. */
-  margin: var(--s5) 0 0;
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  color: var(--figure-dim);
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(12px, 1.5vw, 17px); letter-spacing: 0.22em;
+  margin: clamp(10px, 1.6vh, 18px) 0 0;
 }
 
-/* label | axis | value, with one centre rule crossing every row.
-   The rule is an absolute overlay, not a grid item: an explicitly-placed item
-   still occupies its cells and would push every auto-placed child one column
-   along. Its x needs the track's midpoint to be expressible, hence the fixed
-   side columns — the gaps cancel, leaving
-       track centre = 50% + (label width − value width) / 2 */
+/* label | axis track | value, with ONE centre rule crossing every row.
+   The rule is NOT a grid item: an explicitly-placed item still occupies its
+   cells, so it would push the auto-placed label/track/value out of column 2 and
+   cascade every row by one. It is an absolute overlay instead, which needs the
+   track's midpoint to be expressible in CSS — hence the fixed side columns. The
+   gaps cancel out of that midpoint, leaving:
+       track centre = 50% + (label width − value width) / 2  */
 .cd-plot {
-  /* Fixed side columns, because the centre rule's x is derived from them:
-       track centre = 50% + (label width - value width) / 2
-     The label column is sized to "ROUND 1" tracked out, with slack. */
-  --cd-label-w: calc(var(--s8) + var(--s7));
-  --cd-value-w: calc(var(--s8) + var(--s2));
-  --cd-dot: var(--s5);
+  --cd-label-w: clamp(72px, 10vw, 108px);
+  --cd-value-w: clamp(52px, 7vw, 76px);
+  --cd-overhang: clamp(16px, 3.2vh, 34px);
+  --cd-dot: clamp(14px, 1.7vw, 22px);
   position: relative;
   display: grid;
   grid-template-columns: var(--cd-label-w) minmax(0, 1fr) var(--cd-value-w);
   align-items: center;
-  column-gap: var(--s5);
-  row-gap: var(--s6);
+  column-gap: clamp(14px, 2.4vw, 34px);
+  row-gap: clamp(16px, 5vh, 46px);
+  text-align: left;
 }
 .cd-centre {
   position: absolute;
   left: calc(50% + (var(--cd-label-w) - var(--cd-value-w)) / 2);
-  top: calc(-1 * var(--s5));
-  bottom: calc(-1 * var(--s5));
-  width: var(--rule-w);
-  background: var(--rule-strong);
+  top: calc(-1 * var(--cd-overhang));
+  bottom: calc(-1 * var(--cd-overhang));
+  width: 1px; background: rgba(255,255,255,0.5);
 }
 .cd-label {
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  color: var(--figure-dim);
-  white-space: nowrap;
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(10px, 1.15vw, 14px); letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.72); white-space: nowrap;
 }
-.cd-track { position: relative; height: var(--rule-w); background: var(--rule); }
-/* Dots are placed, never transitioned: nothing on this screen has a period, and
-   a dot sliding into position would be one. */
+.cd-track { position: relative; height: 1px; background: rgba(255,255,255,0.28); }
+/* Dots are placed, never transitioned: no motion on this screen has a period,
+   and an animated dot sliding into position would be one. */
+.cd-dot, .cd-perfect {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  line-height: 1;
+}
 .cd-dot {
-  position: absolute; top: 50%;
-  transform: translate(-50%, -50%);
   width: var(--cd-dot); height: var(--cd-dot);
-  border-radius: var(--r-pill);
-  background: var(--figure);
+  border-radius: 50%;
 }
-.cd-dot.near { background: var(--band-near); }
-.cd-dot.mid  { background: var(--band-mid); }
-/* There is no separate marker for a round that ran off the scale. `pegged` and
-   "the dot is at the end of the track" are the SAME predicate — trackFraction
-   clamps at exactly the threshold bandForErrorMs pegs at — so the bar that used
-   to sit just past the dot restated, for a third time, what the dot's position
-   and the printed value already say. Five rows each carrying a redundant mark
-   is most of what made this plot look busy.
-*/
+.cd-perfect { font-size: calc(var(--cd-dot) * 1.15); }
+/* A pegged round keeps its dot at the extreme of the axis and adds a hard stop
+   just past it, so a clipped value cannot read as a merely-large one (the ◂/▸
+   of the text block). A drawn bar, not a chevron character: the OG renderer has
+   only the font buffers it is handed and would draw the glyph blank. */
+.cd-peg {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 3px; height: var(--cd-dot);
+}
+.cd-peg-late  { left: calc(100% + var(--cd-dot) / 2 + 5px); }
+.cd-peg-early { right: calc(100% + var(--cd-dot) / 2 + 5px); }
 .cd-value {
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  font-variation-settings: 'wdth' 100;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--track-figure);
-  white-space: nowrap;
-  min-width: 5ch;
-  text-align: right;
+  font-family: var(--sans); font-weight: 700;
+  font-size: clamp(12px, 1.35vw, 17px); letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  min-width: 5.5ch; text-align: right;
 }
 
-/* Narrow: the total stacks above the plot, both full width. The header stays
-   left-aligned — matching the image at every width is the point. */
-@media (max-width: 55rem) {
-  .cd-body { grid-template-columns: minmax(0, 1fr); gap: var(--s6); }
-  /* On a phone the three columns leave the axis about 95px, which a 24px dot
-     swamps - a quarter of the track, so position stops reading. Tighten the
-     side columns and the gaps (the rule's x follows automatically) and step the
-     dot down one place on the scale. */
-  .cd-plot {
-    --cd-label-w: calc(var(--s8) + var(--s6));
-    --cd-value-w: calc(var(--s7) + var(--s2));
-    --cd-dot: var(--s4);
-    column-gap: var(--s3);
-    row-gap: var(--s5);
-  }
-  .cd-value { min-width: 0; }
+/* Narrow: the total stacks above the plot and both go full width. */
+@media (max-width: 880px) {
+  .cd-body { grid-template-columns: minmax(0, 1fr); gap: clamp(20px, 4vh, 32px); }
+  .cd-total { text-align: center; }
+  .results.card { text-align: center; }
+  .cd-head { text-align: center; }
 }
-
-.btnrow { display: flex; gap: var(--s4); flex-wrap: wrap; }
-.btnrow .btn { flex: 1; min-width: 11rem; }
-
-/* Today's puzzle is spent. A static plate in the primary slot, not a control
-   and not a clock: the old build ticked a countdown here on setInterval(1000),
-   which is a literal one-second metronome running in the product. It states the
-   fact instead. */
-.spent {
-  flex: 1;
-  min-width: 11rem;
-  min-height: var(--s8);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s1);
-  border: var(--border-w) dashed var(--rule);
-  border-radius: var(--r-pill);
-  padding: var(--s3) var(--s5);
-  color: var(--figure-dim);
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding-left: calc(var(--s5) + var(--track-label));
-  text-align: center;
-}
-.spent .when { color: var(--on-field); font-variant-numeric: tabular-nums; }
-
-.links { display: flex; gap: var(--s4); }
-
-/* The ASCII block is noise read aloud, so the prose summary carries the same
-   content beside it. */
+/* Visible to screen readers only: the ASCII block is noise when read aloud, so
+   the prose summary carries the same content beside it. */
 .sr-only {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }
+.btnrow { display: flex; gap: 18px; width: 100%; max-width: 460px; }
+.btnrow .btn { flex: 1; min-width: 0; padding: clamp(12px, 1.8vh, 16px) 8px; font-size: clamp(18px, 2.6vh, 26px); }
+.btn.alt { background: transparent; color: var(--white); border: 2px solid rgba(255,255,255,0.78); }
+/* Daily lock: today's puzzle is spent. Occupies PLAY AGAIN's slot as a static,
+   non-interactive plate — dashed border reads "unavailable" without a tooltip.
+   The clock ticks (results screen only; nothing here is being timed). */
+.btn.locked {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  background: transparent; color: var(--white);
+  border: 2px dashed rgba(255,255,255,0.3);
+  opacity: 0.72; cursor: default; transform: none;
+}
+.btn.locked:hover, .btn.locked:active { transform: none; }
+.btn.locked .lk {
+  font-family: var(--sans); font-weight: 800; font-size: 10px;
+  letter-spacing: 0.14em; opacity: 0.75;
+}
+.btn.locked .cd { font-variant-numeric: tabular-nums; letter-spacing: 0.03em; }
+.links { display: flex; gap: 22px; justify-content: center; }
 
-/* ==========================================================================
-   Toast
-   ========================================================================== */
+/* --- Toast --------------------------------------------------------------- */
 .toast {
-  position: fixed;
-  left: 50%;
-  bottom: max(var(--s6), env(safe-area-inset-bottom));
-  z-index: var(--z-toast);
-  background: var(--on-field);
-  color: var(--screen-bg, var(--surface));
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding: var(--s3) var(--s5);
-  padding-left: calc(var(--s5) + var(--track-label));
-  border-radius: var(--r-pill);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(-50%);
-  /* Opacity only, one duration, one-shot. A repeat retargets rather than
-     restarting, so a second COPY cannot produce a rhythm. */
-  transition: opacity var(--dur-state) var(--ease),
-              visibility 0s linear var(--dur-state);
+  position: fixed; left: 50%; bottom: 34px;
+  background: var(--ink); color: var(--white);
+  font-family: var(--display); font-size: 20px; letter-spacing: 0.06em;
+  padding: 12px 30px; border-radius: 999px; z-index: 50;
+  /* Enters and exits the same way (up from the bottom). Transition, not
+     keyframes, so a second COPY retargets instead of restarting. */
+  opacity: 0; visibility: hidden;
+  transform: translateX(-50%) translateY(10px);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out),
+              visibility 0s linear 200ms;
 }
 .toast.show {
-  opacity: 1;
-  visibility: visible;
-  transition: opacity var(--dur-state) var(--ease), visibility 0s;
-}
-
-/* ==========================================================================
-   Sound toggle
-   ==========================================================================
-   Lives outside #app so it survives every screen swap. A word, not an icon: the
-   old build used a 🔊 emoji, which renders as a different picture on every
-   platform and put a piece of cartoon art on a measurement instrument. */
-.mute-toggle {
-  position: fixed;
-  /* Same inset as the page margin and the same slot height as the counter, so
-     the two ends of the header row share one optical line. */
-  top: max(var(--page), env(safe-area-inset-top));
-  right: max(var(--page), env(safe-area-inset-right));
-  z-index: var(--z-chrome);
-  min-width: var(--s8);
-  height: var(--s7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 0;
-  color: var(--on-field);
-  font-family: var(--face);
-  font-size: var(--t-label);
-  font-weight: var(--w-bold);
-  letter-spacing: var(--track-label);
-  padding-left: var(--track-label);
-  cursor: pointer;
-}
-.mute-toggle[aria-pressed='true'] { color: var(--figure-dim); }
-
-/* ==========================================================================
-   View transitions
-   ==========================================================================
-   The ONLY motion in the product. One duration, one curve, opacity only, fires
-   once on mount, and never on a round screen — `.round-screen` zeroes
-   --dur-view, and a 0s animation does not run.
-
-   There is deliberately no stagger. The old build revealed five children at
-   40/100/160/220/280ms and five card rows at 130/180/230/280/330ms: an evenly
-   spaced train of onsets is a period, which is exactly what this product may
-   not show anyone, and it also meant the score was the LAST thing to arrive on
-   the screen whose entire content is the score. */
-@keyframes appear { from { opacity: 0; } to { opacity: 1; } }
-/* The burst swings into place once and stops. It used to spin on an infinite
-   loop; a loop is a period, and that has no screen-by-screen exemption. */
-@keyframes burst-in {
-  from { transform: translate(-50%, -50%) rotate(-14deg); }
-  to   { transform: translate(-50%, -50%) rotate(0deg); }
-}
-
-.enter { animation: appear var(--dur-view) var(--ease) both; }
-.round-screen .enter { animation: none; }
-
-/* See the note on .perfect-burst: the documented exception. --dur-burst is
-   deliberately NOT one of the two UI durations — it is a one-off for this one
-   element, so nothing else can reach for it. */
-.perfect-burst {
-  animation: appear var(--dur-burst) ease-out both,
-             burst-in calc(var(--dur-burst) * 1.8) var(--ease) both;
+  opacity: 1; visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out),
+              visibility 0s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .perfect-burst { animation: appear var(--dur-burst) ease-out both; }
+  .toast, .toast.show { transform: translateX(-50%); transition-property: opacity, visibility; }
+}
+
+/* --- Mute toggle ----------------------------------------------------------
+   Lives outside #app so it survives every screen swap. A plain state icon,
+   never a countdown or clock, so it's safe on measurement screens too. */
+.mute-toggle {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+  z-index: 60;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.14);
+  border: 0; border-radius: 50%;
+  color: var(--on-bg);
+  font-size: 16px; line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+.mute-toggle:active { transform: scale(0.9); }
+.mute-toggle.is-muted { opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .mute-toggle { transition: none; } }
+
+:focus-visible { outline: 4px solid rgba(255,255,255,0.7); outline-offset: 4px; }
+
+/* --- Entrances ----------------------------------------------------------- *
+   These reveals are ONE-SHOT and fire on mount. The hard rule stands: a
+   MEASUREMENT screen (the hold rounds, the "Running" guesses, round 4's ticks,
+   round 5's equation/guess) never animates — a period there would hand the
+   player a reference. Motion only runs where timing is over: the landing, the
+   per-round result, and the final results. Nothing anywhere repeats: there is no
+   `infinite` in this file, by rule. */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pop  { from { opacity: 0; transform: scale(0.92);      } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+/* Perfect screen: the burst swings into place once and stops. It used to spin on
+   an infinite loop; a loop is a period, and the no-repeating-motion rule has no
+   screen-by-screen exemptions. The text is static. */
+@keyframes burst-in { from { transform: translate(-50%,-50%) rotate(-14deg); }
+                      to   { transform: translate(-50%,-50%) rotate(0deg); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Perfect: the burst fades in and settles — once, then it holds. */
+  .perfect-burst { animation: fade 600ms ease-out both, burst-in 1100ms var(--ease-out) both; }
+
+  /* Landing: the wordmark and its supporting lines rise in, gently staggered. */
+  .enter > * { animation: rise 460ms var(--ease-out) both; }
+  .enter > *:nth-child(1) { animation-delay: 40ms; }
+  .enter > *:nth-child(2) { animation-delay: 100ms; }
+  .enter > *:nth-child(3) { animation-delay: 160ms; }
+  .enter > *:nth-child(4) { animation-delay: 220ms; }
+  .enter > *:nth-child(5) { animation-delay: 280ms; }
+
+  /* Per-round result: the copy rises, the score pops under it. Feedback on a
+     completed round, not a live clock. */
+  .reveal .cue  { animation: rise 380ms var(--ease-out) both; }
+  .reveal .hero { animation: pop  460ms var(--ease-out) both; animation-delay: 70ms; }
+
+  /* Results: the card assembles top-down, then the rows land one after another.
+     All one-shot — timing is over on this screen, and nothing here repeats. */
+  .results > * { animation: rise 500ms var(--ease-out) both; }
+  .results > *:nth-child(1) { animation-delay: 20ms; }
+  .results > *:nth-child(2) { animation-delay: 70ms; }
+  .results > *:nth-child(3) { animation-delay: 115ms; }
+  .results > *:nth-child(4) { animation-delay: 160ms; }
+  .cd-num { animation: pop 560ms var(--ease-out) both; animation-delay: 40ms; }
+  /* Each row is three children (label, track, value) and the centre rule is the
+     first, so a row's delay is an explicit span of three — a 3n+ pattern would
+     stagger the COLUMNS instead, and 3n+5 is the same set as 3n+2. */
+  .cd-plot > :not(.cd-centre) { animation: rise 420ms var(--ease-out) both; }
+  .cd-plot > :nth-child(n + 2):nth-child(-n + 4)   { animation-delay: 130ms; }
+  .cd-plot > :nth-child(n + 5):nth-child(-n + 7)   { animation-delay: 180ms; }
+  .cd-plot > :nth-child(n + 8):nth-child(-n + 10)  { animation-delay: 230ms; }
+  .cd-plot > :nth-child(n + 11):nth-child(-n + 13) { animation-delay: 280ms; }
+  .cd-plot > :nth-child(n + 14):nth-child(-n + 16) { animation-delay: 330ms; }
+}
+
+/* Reduced motion: keep the reveal as comprehension, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .enter, .reveal, .results { animation: fade 240ms ease both; }
+  .perfect-burst { animation: fade 400ms ease both; } /* no rotation */
 }

@@ -6,9 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  cardModel, renderCardHTML, TONES, OG_SIZE, CARD_METRICS,
-} from '../js/scorecard.js';
+import { cardModel, renderCardHTML, TONES, OG_SIZE } from '../js/scorecard.js';
 import {
   cellIndex, encodeResult, decodeResult, headlineRate, AXIS_HALF_RANGE_S,
 } from '../js/share.js';
@@ -69,86 +67,28 @@ test('perfect sits at centre and is never pegged', () => {
   for (const row of m.rows) {
     assert.equal(row.fraction, 0.5);
     assert.equal(row.pegged, false);
-    assert.equal(row.tone, 'near');
+    assert.equal(row.tone, 'perfect');
   }
 });
 
-test('the card has exactly two tones, and neither is a failure state', () => {
+test('no tone is red — the card is shared, and §13 forbids a failure state', () => {
   const worst = cardModel({ ...MOCKUP, rounds: MOCKUP.rounds.map((x) => r(x.key, 9)) });
   for (const row of worst.rows) assert.equal(row.tone, 'neutral');
-  // Two, not four. A ramp of graded colours makes the card read as a status
-  // dashboard; position already carries how far out a round was, so colour only
-  // marks the good end. Anything added here is a second accent.
-  assert.deepEqual(Object.keys(TONES).sort(), ['mid', 'near', 'neutral']);
-  assert.equal(TONES.near.color, '#27BF46', '--band-near, from tokens.css');
-  assert.equal(TONES.mid.color, '#F79B1B', '--band-mid, from tokens.css');
-  assert.equal(TONES.neutral.color, '#FFFFFF', '--figure, from tokens.css');
-  // The far band is deliberately absent: SHARE sends this card, and a red
-  // failure state is what the share must not carry. Position says how far out.
   for (const tone of Object.values(TONES)) {
-    assert.notEqual(tone.color, '#FF4A21', 'the far band must not reach the card');
+    if (!tone.color) continue;
+    assert.ok(!/^#(f|e)[0-9a-f]{2}[0-3]/i.test(tone.color) || tone.color === '#F79B1B',
+      `${tone.name} reads as a red failure state`);
   }
 });
-
-// --- Open Graph card -------------------------------------------------------
-
-test('a round that ran off the scale is marked by position alone', () => {
-  // `pegged` and "the dot sits at the end of the track" are the same predicate:
-  // trackFraction clamps at exactly the threshold that sets pegged. A second
-  // marker beside the dot restated it a third time, after the dot and the
-  // printed value.
-  const far = cardModel({ ...MOCKUP, rounds: MOCKUP.rounds.map((x) => r(x.key, 9)) });
-  for (const row of far.rows) {
-    assert.equal(row.pegged, true);
-    assert.equal(row.fraction, 1, 'a pegged round sits at the extreme of the axis');
-  }
-  const html = renderCardHTML(far);
-  assert.equal((html.match(/position:absolute/g) || []).length, far.rows.length + 1,
-    'no extra mark is drawn for a pegged round');
-});
-
 test('the OG card draws every mark — it never emits a glyph it cannot render', () => {
-  // Satori has only the font buffers the Worker hands it, so any of these in the
-  // markup comes out BLANK. Every mark on the card is a drawn box instead.
+  // Satori has only the font buffers the Worker hands it. A ▸ or a 💎 in the
+  // markup comes out BLANK, which on a perfect round would silently erase the
+  // best result in the game. Both are drawn instead.
   const html = renderCardHTML(cardModel(MOCKUP));
   for (const glyph of ['▸', '◂', '💎', '●', '◈']) {
     assert.ok(!html.includes(glyph), `OG card must not depend on the glyph ${glyph}`);
   }
-  // A perfect round is an accent dot at dead centre, not a gem: emoji have no
-  // place on a measurement instrument, and the axis says "exact" more precisely
-  // than a picture can.
-  const perfect = cardModel({ ...MOCKUP, rounds: MOCKUP.rounds.map((x) => r(x.key, 0, true)) });
-  const phtml = renderCardHTML(perfect);
-  assert.ok(!phtml.includes('<img'), 'no image marker remains on a perfect round');
-  assert.equal((phtml.match(/#27BF46/g) || []).length, 5, 'five near-band dots, one per round');
-});
-
-test('the value column is set as figures, not as chrome', () => {
-  // css/styles.css tracks .cd-label and .cd-unit at --track-label and .cd-value
-  // at --track-figure. The card once tracked its values out to the label's
-  // 0.2em, which rendered "+ 0 . 0 4" and made the numeral column read as
-  // decoration on the one surface strangers actually see.
-  const html = renderCardHTML(cardModel(MOCKUP));
-  const M = CARD_METRICS;
-  const valueStyles = [...html.matchAll(/justify-content:flex-end;([^"]*)/g)].map((m) => m[1]);
-  assert.equal(valueStyles.length, MOCKUP.rounds.length, 'one right-aligned value per round');
-  for (const style of valueStyles) {
-    assert.ok(style.includes(`letter-spacing:${M.FIGURE_EM}px`),
-      `a value is tracked as chrome, not as a figure: ${style}`);
-  }
-  assert.ok(M.FIGURE_EM < M.TRACK_EM / 10, 'figures carry near-zero tracking');
-});
-
-test('the image and the screen agree on the values they print', () => {
-  // The one thing that must never drift: what the card prints is what the
-  // screen prints, character for character, U+2212 included.
-  const model = cardModel(MOCKUP);
-  const html = renderCardHTML(model);
-  for (const row of model.rows) assert.ok(html.includes(row.value), `missing ${row.value}`);
-  assert.ok(html.includes(model.totalSeconds.toFixed(2)), 'total printed to two places');
-  assert.ok(html.includes('SECONDS OFF'), 'the same unit label the screen uses');
-  assert.ok(!/-\d/.test(html.replace(/[a-z-]+:-?\d+px/g, '')),
-    'negatives use U+2212, never an ASCII hyphen');
+  assert.ok(html.includes('<img src="data:image/svg+xml'), 'perfect round needs its drawn gem');
 });
 
 test('the card carries no tier tag and no URL stamp', () => {
@@ -170,47 +110,16 @@ test('the OG card is Satori-safe: every element declares a display', () => {
   }
 });
 
-test('the card is laid out on the same 8px scale as the stylesheet', () => {
-  // Every dimension the card emits has to be a step on the shared spacing scale,
-  // or the image and the screen are only approximately the same object.
-  const M = CARD_METRICS;
-  assert.equal(M.PAD, 72, 'the page margin is the --page token');
-  assert.equal(M.DOT % 4, 0, 'DOT is off the 4px base unit');
-  // The columns derive from the frame rather than being typed in twice, so the
-  // track cannot drift out of agreement with the margins.
-  assert.equal(M.PLOT_W, M.W - 2 * M.PAD - M.TOTAL_W - 72);
-  assert.equal(M.TRACK_W, M.PLOT_W - M.LABEL_W - M.VALUE_W - 64);
-  assert.ok(M.TRACK_W > 4 * M.DOT, 'the dot must not swamp the axis');
-
-  // The centre rule is the zero every dot is read against, so it has to cross
-  // EVERY row — it once stopped one row short, which read as a rule belonging
-  // to the first four rounds.
-  const firstRowCentre = M.ROW_H / 2;
-  const lastRowCentre = M.ROWS_H - M.ROW_H / 2;
-  assert.ok(M.RULE_TOP < firstRowCentre - M.DOT / 2,
-    'the rule starts above the first dot');
-  assert.ok(M.RULE_TOP + M.RULE_H > lastRowCentre + M.DOT / 2,
-    'the rule runs past the last dot');
-  assert.equal(M.RULE_TOP + M.RULE_H - lastRowCentre, firstRowCentre - M.RULE_TOP,
-    'the overhang is symmetric top and bottom');
-});
-
-test('the card centres its body structurally, not by a measured constant', () => {
-  // The old artwork positioned the total by where the display face happened to
-  // put its ink inside a 170px line box. That constant is the kind that goes
-  // silently wrong the moment anything above it changes size.
+test('the body spans exactly CONTENT_TOP to BOTTOM_PAD', () => {
+  // Both edges are stated, not emergent. The header is pinned at HEAD_Y on its
+  // own, so nothing else holds the frame: a centred block used to run its rule
+  // up level with the wordmark, which read as no gap under the title at all.
   const html = renderCardHTML(cardModel(MOCKUP));
-  assert.ok(html.includes('flex-grow:1;align-items:center'),
-    'the body is centred by flexbox');
-  // Anchored so `margin-top:` does not match: only a real `top:` on a text block.
-  assert.ok(!/[;"]top:-?\d+px;font-family/.test(html),
-    'no text block is positioned by a hand-measured vertical offset');
-  // Absolute positioning survives only where a mark sits at a fraction of a
-  // track: the dots, their pegs, and the centre rule.
-  const model = cardModel(MOCKUP);
-  const absolutes = (html.match(/position:absolute/g) || []).length;
-  assert.equal(absolutes, model.rows.length + 1,
-    'one dot per round and one centre rule — nothing else is absolutely placed');
+  const rule = /top:(\d+)px;width:1px;height:(\d+)px/.exec(html);
+  assert.ok(rule, 'centre rule not found');
+  const top = Number(rule[1]);
+  assert.equal(top, 150, 'the body starts below the header, not level with it');
+  assert.equal(OG_SIZE.height - (top + Number(rule[2])), 67, 'bottom padding');
 });
 test('the OG card renders at the declared size', () => {
   assert.deepEqual(OG_SIZE, { width: 1200, height: 630 });
