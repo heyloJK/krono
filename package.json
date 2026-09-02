@@ -1,0 +1,16 @@
+{
+  "name": "krono",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "dev": "wrangler dev --persist-to \"${TMPDIR:-/tmp}/krono-wrangler\"",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "workers-og": "^0.0.27"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

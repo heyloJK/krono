@@ -4,12 +4,12 @@
 
 import { generateChallenge } from './daily.js';
 import {
-  scoreRound, scoreRound5, scoreReaction, dayTotalMs, glyphForBand,
+  scoreRound, scoreRound5, scoreDrift, followedDrift, dayTotalMs, tierForTotalMs,
 } from './scoring.js';
-import {
-  load, save, newSession, finalizeDay, lifetimeAverageMs, biasString,
-} from './storage.js';
-import { buildShareText, copyToClipboard } from './share.js';
+import { load, save, newSession, finalizeDay } from './storage.js';
+import { shareSummary, encodeResult, headlineRate } from './share.js';
+import { cardModel, TONES, PERFECT_GLYPH, CARD_VERSION } from './scorecard.js';
+import { copyToClipboard } from './clipboard.js';
 import { rngFromString, randInt } from './prng.js';
 import { todayUTC, toDateString, msUntilNextUTCMidnight } from './dates.js';
 import { logRound, installDataHelper } from './instrumentation.js';
@@ -18,13 +18,11 @@ import { feedback, setMuted, isMuted, unlockOnFirstGesture } from './feedback.js
 // ---- Round metadata -------------------------------------------------------
 const TOTAL_ROUNDS = 5;
 const LAST_ROUND = TOTAL_ROUNDS;
-const ROUND_NAMES = {
-  1: 'Match the time',
-  2: 'Match the time',
-  3: 'Guess the time',
-  4: 'Reaction',
-  5: 'Brain game',
-};
+// The share block's four-character labels, in play order — Mark, Fraction,
+// Readout, Drift, Split, abbreviated to its fixed column grid (see js/share.js).
+// The score card labels its rows ROUND 1–5 instead; the two never appear on the
+// same surface.
+const SHARE_KEYS = ['MARK', 'FRAC', 'READ', 'DRFT', 'SPLT'];
 const ROUND_COLOR = {
   1: 'var(--blue)', 2: 'var(--pink)', 3: 'var(--purple)', 4: 'var(--purple)',
   5: 'var(--brain)',
@@ -36,12 +34,6 @@ const ROUND_COLOR = {
 const PARAMS = new URLSearchParams(location.search);
 const DEV_DATE = /^\d{4}-\d{2}-\d{2}$/.test(PARAMS.get('date') || '') ? PARAMS.get('date') : null;
 const DEV = PARAMS.has('dev') || !!DEV_DATE;
-// TEST HELPER: force round 4 to always score a Perfect, whatever your actual
-// reaction was — a quick way to reach the Perfect screen. Off by default so
-// real play gets real (calibrated-hard) reaction scoring; flip to true only
-// for local testing.
-const FORCE_PERFECT_R4 = false;
-
 // ---- App state ------------------------------------------------------------
 let root, today, challenge, session;
 let cleanup = [];
@@ -88,6 +80,7 @@ function big(ms) {
 function signed(ms) {
   return (ms < 0 ? '−' : '+') + big(Math.abs(ms));
 }
+const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // Countdown clock, HH:MM:SS — used only for "next puzzle in…" on the results
 // screen, where a ticking display is safe (no round is being timed).
 function hhmmss(ms) {
@@ -117,7 +110,6 @@ const BAND_UI = {
   green:  { bg: 'var(--green)',  copy: 'Almost got it' },
   yellow: { bg: 'var(--yellow)', copy: 'Not quite' },
   red:    { bg: 'var(--red)',    copy: 'Not even close' },
-  off:    { bg: 'var(--red)',    copy: 'Missed it' }, // round 4 jump start / no reaction; overridden below
 };
 
 // SPACE / tap binder. `action(now)` receives performance.now() captured as the
@@ -295,7 +287,7 @@ function showRound(index) {
   persistSession();
   if (index === 1 || index === 2) return productionRound(index);
   if (index === 3) return guessRound(index);
-  if (index === 4) return reactionRound(index);
+  if (index === 4) return driftRound(index);
   if (index === 5) return round5Intro();
   return showResults();
 }
@@ -382,74 +374,98 @@ function guessRound(index) {
 }
 
 // ==========================================================================
-// Round 4 — reaction (F1 start lights). Five lights fill one at a time on a
-// fixed pace; after a SEEDED hold (never rendered, never countable) they all
-// go dark at once. React the instant they do — pressing any earlier, at any
-// point after the sequence starts, is a false start (flat cap, no credit).
-// Timing is press − lightsOut, both performance.now(), each captured as the
-// first statement of its handler.
+// Round 4 — Drift. Interval production under a deliberately miscalibrated
+// reference: ticks fire at a mean IOI that is 15–25% off a real second (see
+// js/daily.js), jittered so they can't be entrained to, and they STOP partway
+// through. The player finishes in silence and the error accrues there.
+//
+// Ticks fire on audio and visual together, from the same timer callback: the
+// tone is scheduled on the audio clock immediately and the flash paints on the
+// next frame, so the skew stays inside one frame (<20ms). The visual is the
+// ellipsis of "Running…" — three dots held dim, one lighting per tick, in
+// sequence. It is a single-frame class swap with no transition: a fade or an
+// easing curve would smear the onset and hand back a softer, more entrainable
+// edge.
+//
+// The flash leaves no residue, deliberately. Dots light one at a time and go
+// back to dim, rather than filling up and staying, so when the train stops at
+// the blackout the screen looks exactly as it did before the first tick — it
+// never becomes a record of how far the ticks got.
+//
+// Nothing marks the blackout. The ticks simply stop; announcing it would be one
+// more event to time from.
 // ==========================================================================
-const LIGHT_COUNT = 5;
-const LIGHT_STEP_MS = 400;    // fixed pace between each light filling in — never the secret
-const REACTION_TIMEOUT_MS = 3000; // no press this long after go-dark counts as no reaction
+const TICK_DOTS = 3; // the ellipsis of "Running…" doubles as the tick channel
 
-function reactionRound(index) {
-  const holdMs = challenge.round4.holdMs;
-  let phase = 'ready'; // ready -> filling -> holding -> dark -> done
-  let goDarkAt = 0;
+function driftRound(index) {
+  const cfg = challenge.round4;
+  let phase = 'ready', startAt = 0, tickCount = 0;
   const timers = [];
 
   screen(stage({
     counter: `${index} / ${TOTAL_ROUNDS}`,
-    center: `<p class="cue">React the instant the lights go out</p>
-      <div class="lights" id="lights">${'<span class="light"></span>'.repeat(LIGHT_COUNT)}</div>`,
-    hint: spaceHint('start'),
+    center: `<p class="cue">Stop at</p><p class="hero">${big(cfg.targetMs)}</p>
+      <p class="cue tiny">The ticks stop before you do</p>`,
+    hint: spaceHint('begin'),
   }), { round: true, bg: ROUND_COLOR[index] });
 
   bindPress((now) => {
-    if (phase === 'ready') return begin();
-    if (phase === 'filling' || phase === 'holding') return endRound({ jumpStart: true });
-    if (phase === 'dark') return endRound({ reactionMs: now - goDarkAt });
-    // phase === 'done': the round is already over, ignore stray input.
+    if (phase === 'ready') begin(now);
+    else if (phase === 'running') mark(now);
   });
 
-  function begin() {
-    phase = 'filling';
+  function begin(startTime) {
+    startAt = startTime; // the press timestamp (captured first) — the interval begins here
+    phase = 'running';
     feedback.begin();
-    setHint('');
-    const lightsEl = $app().querySelector('#lights');
-    const lightEls = lightsEl.querySelectorAll('.light');
-    for (let i = 0; i < LIGHT_COUNT; i++) {
-      const t = setTimeout(() => {
-        lightEls[i].classList.add('on');
-        feedback.lightOn();
-        if (i === LIGHT_COUNT - 1) {
-          phase = 'holding';
-          const darkTimer = setTimeout(() => {
-            goDarkAt = performance.now(); // FIRST statement
-            phase = 'dark';
-            lightsEl.classList.add('out'); // instant — no transition softens this edge
-            feedback.lightsOut();
-            const missTimer = setTimeout(() => endRound({ noReaction: true }), REACTION_TIMEOUT_MS);
-            timers.push(missTimer);
-          }, holdMs);
-          timers.push(darkTimer);
-        }
-      }, LIGHT_STEP_MS * (i + 1));
-      timers.push(t);
+    // Target reminder stays up small, as in rounds 1–2, so the hold isn't blind.
+    // The dots are always in the markup, only their brightness changes, so a
+    // tick can never reflow the line under a player who is watching it.
+    setMid(`<p class="cue">${big(cfg.targetMs)}</p>
+      <p class="hero word">Running<span class="dots" aria-hidden="true"
+        >${'<span>.</span>'.repeat(TICK_DOTS)}</span></p>`);
+    setHint(spaceHint('stop'));
+
+    const dots = $app().querySelectorAll('.dots > span');
+    // Every tick is scheduled from the SAME origin, so setTimeout slop can't
+    // accumulate across the train — each onset is independently anchored.
+    const elapsed = performance.now() - startAt;
+    for (const onsetMs of cfg.tickOffsetsMs) {
+      timers.push(setTimeout(() => tick(dots), Math.max(0, onsetMs - elapsed)));
     }
   }
 
-  // Feedback fires immediately here (not on the next screen) so it feels like
-  // part of the reaction itself, not a delayed verdict.
-  function endRound({ jumpStart = false, noReaction = false, reactionMs = null } = {}) {
+  // Each tick lights the NEXT dot and only that one, wrapping round. The cycle
+  // length is a red herring, not a period: the onsets are jittered per tick, so
+  // three dots never add up to a countable bar.
+  function tick(dots) {
+    feedback.tick();                 // audio first: it starts on the audio clock
+    const dot = dots[tickCount++ % dots.length];
+    if (!dot) return;
+    dot.classList.add('lit');        // visual: on now, off after one painted frame
+    const off = () => dot.classList.remove('lit');
+    requestAnimationFrame(() => requestAnimationFrame(off));
+    // rAF is throttled to nothing in a backgrounded tab, which would leave the
+    // dot stuck lit and swallow every later tick. The timer is a backstop only —
+    // when frames are running the double-rAF has already fired.
+    timers.push(setTimeout(off, 60));
+  }
+
+  function mark(now) {
     phase = 'done';
     timers.forEach(clearTimeout);
-    const scored = (!jumpStart && !noReaction && FORCE_PERFECT_R4) ? 1 : reactionMs;
-    const s = scoreReaction(scored, { jumpStart, noReaction });
-    if (s.band === 'perfect') feedback.perfect(); else feedback.result(s.band);
-    completeRound(index, { roundIndex: index, ...s });
+    feedback.tap();
+    const measuredMs = now - startAt;
+    const s = scoreDrift(measuredMs, cfg.targetMs);
+    completeRound(index, {
+      roundIndex: index,
+      targetMs: cfg.targetMs,
+      actualMs: measuredMs,
+      followedBias: followedDrift(s.signedMs, cfg.biasDir),
+      ...s,
+    });
   }
+
   cleanup.push(() => timers.forEach(clearTimeout));
 }
 
@@ -599,7 +615,15 @@ function completeRound(index, result) {
     signedError: result.signedMs != null ? result.signedMs / 1000 : null,
     relativeError: result.relError ?? null,
     band: result.band,
-    ...(index === 4 ? { reaction: result.reactionMs != null ? result.reactionMs / 1000 : null, jumpStart: result.jumpStart, noReaction: result.noReaction } : {}),
+    ...(index === 4 ? {
+      biasDir: challenge.round4.biasDir,
+      biasPct: challenge.round4.biasPct,
+      meanIoi: challenge.round4.meanIoiMs / 1000,
+      jitterSd: challenge.round4.jitterSdMs / 1000,
+      blackout: challenge.round4.blackoutMs / 1000,
+      tickCount: challenge.round4.tickOffsetsMs.length,
+      followedBias: result.followedBias,
+    } : {}),
     ...(index === 5 ? { mathCorrect: result.mathCorrect, timeToAnswer: result.targetMs != null ? result.targetMs / 1000 : null } : {}),
   });
 
@@ -633,23 +657,18 @@ function bindResultAdvance(index) {
 // auto-advance — the player presses SPACE (or taps) to move on.
 function showResult(index, result) {
   const band = result.band || 'red';
-  if (band === 'perfect') return showPerfectResult(index);
-  // Round 4 already fired its outcome sound the instant it happened (see
-  // reactionRound's endRound) — don't play it again when this screen paints.
-  if (index !== 4) feedback.result(band);
+  if (band === 'perfect') return showPerfectResult(index, result);
+  feedback.result(band);
 
   const ui = BAND_UI[band] || BAND_UI.red;
   let copy = ui.copy, value, sub = '';
-  if (index === 4 && result.jumpStart) {
-    copy = 'False start'; value = big(result.scoreMs); // flat 50cs penalty
-  } else if (index === 4 && result.noReaction) {
-    copy = 'No reaction'; value = big(result.scoreMs); // flat 50cs penalty
-  } else if (index === 5 && result.outcome === 'timeout') {
+  if (index === 5 && result.outcome === 'timeout') {
     copy = 'No answer'; value = big(result.scoreMs); // 2:00
   } else if (index === 5 && result.outcome === 'expired') {
     copy = 'Time up'; value = big(result.scoreMs);
   } else {
     value = signed(result.signedMs);
+    if (index === 4) sub = driftLine(result);
     if (index === 5 && result.mathCorrect === false) sub = '<p class="cue tiny">+0:50 math</p>';
   }
 
@@ -665,9 +684,9 @@ function showResult(index, result) {
 
 // The Perfect screen — a comic-book burst (cyan core, navy rays) whose rays
 // rotate slowly. The rarest outcome (offset 0), so the celebration lives here.
-function showPerfectResult(index) {
+function showPerfectResult(index, result) {
   const isLast = index === LAST_ROUND;
-  if (index !== 4) feedback.perfect(); // round 4 already fired this immediately (see endRound)
+  feedback.perfect();
   screen(`
     <div class="screen stage perfect">
       <div class="perfect-burst" aria-hidden="true"></div>
@@ -675,11 +694,21 @@ function showPerfectResult(index) {
       <div class="mid">
         <p class="cue">Only ${perfectCount(index)} people got this today</p>
         <p class="hero word perfect-word">Perfect</p>
+        ${index === 4 ? driftLine(result) : ''}
       </div>
       <p class="hint">${spaceHint(isLast ? 'see results' : 'continue')}</p>
     </div>
   `, { round: true, bg: 'var(--perfect)' });
   bindResultAdvance(index);
+}
+
+// Round 4's post-round line — the only place the day's bias is ever stated, and
+// the whole tutorial for the round. A fast reference pulls the player early, a
+// slow one pulls them late; "followed it" is sign agreement with that pull.
+function driftLine(result) {
+  const { biasDir, biasPct } = challenge.round4;
+  const verdict = result.followedBias ? 'You followed it.' : 'You didn’t.';
+  return `<p class="cue tiny">Reference ran ${Math.round(biasPct)}% ${biasDir}. ${verdict}</p>`;
 }
 
 // Social-proof flavour for the Perfect screen. No backend yet (Phase 0), so it's
@@ -708,45 +737,150 @@ function finalizeToday() {
 }
 
 // ==========================================================================
-// Results
+// Share
 // ==========================================================================
+// The share block plots the CAPPED signed error, not the raw one. Two reasons:
+// the displayed column then sums to the day total the player is looking at (the
+// reconciliation property the format lives or dies on), and the stored, capped
+// score stays the single authoritative number for tiers. Nothing is lost on the
+// axis either — every cap is far past the half-range, so a capped round pegs
+// with ◂/▸ exactly as it should.
+function shareSignedMs(r) {
+  // Round 5 can end with no signed error at all (no answer, or the guess phase
+  // expired). There is no direction to plot, so it is entered as its flat score,
+  // late: the player never marked, which is as late as it gets, and the value
+  // column still reconciles.
+  if (r.signedMs == null) return r.scoreMs;
+  const magnitude = r.cappedErrorMs != null ? r.cappedErrorMs : Math.abs(r.signedMs);
+  return (r.signedMs < 0 ? -1 : 1) * magnitude;
+}
+
+function buildShareInput() {
+  return {
+    puzzleNumber: challenge.puzzleNumber,
+    rounds: session.rounds.map((r, i) => ({
+      key: SHARE_KEYS[i],
+      signedErrorSeconds: shareSignedMs(r) / 1000,
+      isPerfect: r.band === 'perfect',
+    })),
+    // Authoritative tier, from the stored score — never from the block's
+    // rounded headline.
+    tier: tierForTotalMs(dayTotalMs(session.rounds)),
+    streak: root.streak.current,
+    // globalRank stays absent until there is a backend; the flawless variant
+    // simply omits the rank clause rather than inventing one.
+  };
+}
+
+// The permanent link to this result, and the card image behind it. Both are
+// generated by the Worker from the code in the path (see worker/index.js), so
+// there is nothing to store and nothing to upload at share time.
+// Where the link in the share points. The result page rather than the site root:
+// it carries the OG tags, so anywhere the TEXT flavour of the clipboard wins —
+// Slack, Discord, Notes, email, any plain text field — the link unfurls into the
+// card instead of arriving as a bare invite. It costs nothing where the IMAGE
+// flavour wins, and the page itself leads to today's puzzle either way.
+function resultUrl(input) {
+  return `${location.origin}/s/${encodeResult(input)}`;
+}
+function cardImageUrl(input) {
+  // The version token is what lets a redesign reach a cached browser; see
+  // CARD_VERSION in js/scorecard.js.
+  return `${location.origin}/og/${encodeResult(input)}.png?v=${CARD_VERSION}`;
+}
+
+const CARD_MIME = 'image/png';
+
+// One short line. The card carries the detail; a caption competing with it just
+// buries the image under text, which is what the old block-first share did.
+function shareCaption(input) {
+  return `Krono #${input.puzzleNumber} — ${headlineRate(input.rounds).toFixed(2)} seconds off`;
+}
+
+async function fetchCardBlob(input) {
+  const res = await fetch(cardImageUrl(input), { cache: 'force-cache' });
+  if (!res.ok) throw new Error(`card ${res.status}`);
+  const blob = await res.blob();
+  if (blob.type !== CARD_MIME) throw new Error(`card type ${blob.type}`);
+  return blob;
+}
+
+// SHARE copies. It deliberately does NOT open a native share sheet: handing the
+// card straight to the clipboard keeps the player on the results screen and lets
+// them paste wherever they were already going, instead of picking a destination
+// out of an OS list first.
+async function doShare() {
+  const input = buildShareInput();
+  const text = `${shareCaption(input)}\n${resultUrl(input)}`;
+
+  // Both the image and the link in ONE clipboard item, so the paste target
+  // picks: a message thread takes the image, a plain text field takes the link.
+  // The blob is passed as a PROMISE, not an awaited value — Safari only keeps
+  // the user gesture alive across the fetch if the item is constructed
+  // synchronously with one.
+  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        [CARD_MIME]: fetchCardBlob(input),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      })]);
+      toast('CARD COPIED');
+      return;
+    } catch { /* no image clipboard, or the card didn't render — fall through */ }
+  }
+
+  // Text only. The caption still carries the score, so nothing is lost beyond
+  // the picture.
+  const ok = await copyToClipboard(text);
+  toast(ok ? 'LINK COPIED' : 'COPY FAILED');
+}
+
+// ==========================================================================
+// Results — the score card
+// ==========================================================================
+// One row per round: label, a fixed-scale axis, the signed error as a dot, the
+// value. The scale is the same 0.50s half-range the text block uses and it is
+// NEVER normalised to the day — a bad day pegging at the edge is information,
+// not a rendering fault. A pegged row keeps its dot and adds a chevron, so a
+// clipped value can't read as a merely-large one.
+function cardRowHtml(row) {
+  const pos = `left:${(row.fraction * 100).toFixed(3)}%`;
+  const mark = row.isPerfect
+    ? `<span class="cd-perfect" style="${pos}">${PERFECT_GLYPH}</span>`
+    : `<span class="cd-dot" style="${pos};background:${TONES[row.tone].color}"></span>` +
+      (row.pegged
+        ? `<span class="cd-peg cd-peg-${row.side}" style="background:${TONES[row.tone].color}"></span>`
+        : '');
+  return `<div class="cd-label">${row.label}</div>
+    <div class="cd-track">${mark}</div>
+    <div class="cd-value">${escapeHtml(row.value)}</div>`;
+}
+
 function showResults() {
   const rounds = session.rounds;
-  const totalMs = dayTotalMs(rounds);
-  const bands = rounds.map((r) => r.band);
-  const streak = root.streak.current;
-  const avgMs = lifetimeAverageMs(root);
-  const bias = biasString(root);
   const beatToday = !DEV && root.personalBest.date === session.date && root.lifetime.days > 1;
   // Daily lock: today's puzzle is already spent. A results screen for an EARLIER
   // day (a new UTC day has arrived since) unlocks PLAY AGAIN again. Dev sessions
   // never lock — they never wrote to stats in the first place.
   const locked = !DEV && session.date === todayUTC();
 
-  const rowsHtml = rounds.map((r) => {
-    const target = r.targetMs == null || r.targetMs === 0 ? '—' : big(r.targetMs);
-    const you = r.actualMs != null ? big(r.actualMs) : '—';
-    const off = big(r.rawErrorMs != null ? r.rawErrorMs : r.scoreMs);
-    return `<tr>
-      <td><span class="g">${glyphForBand(r.band)}</span> ${ROUND_NAMES[r.roundIndex]}</td>
-      <td class="num">${target}</td>
-      <td class="num">${you}</td>
-      <td class="num">${off}</td>
-    </tr>`;
-  }).join('');
+  const shareInput = buildShareInput();
+  const card = cardModel(shareInput);
 
   screen(`
-    <div class="screen results">
-      <p class="kicker">KRONO #${challenge.puzzleNumber}${DEV ? ' · TEST' : ''}${beatToday ? ' · ★ BEST' : ''}</p>
-      <p class="hero total">${big(totalMs)}<span class="off">s off</span></p>
-      <div class="grid-glyphs">${bands.map(glyphForBand).join('')}</div>
-      <table class="breakdown"><tbody>${rowsHtml}</tbody></table>
-      <div class="stats">
-        <div class="stat"><div class="k">Streak</div><div class="v">🔥 ${streak}</div></div>
-        <div class="stat"><div class="k">Best</div><div class="v">${root.personalBest.total != null ? big(root.personalBest.total) : '—'}</div></div>
-        <div class="stat"><div class="k">Avg</div><div class="v">${avgMs != null ? big(avgMs) : '—'}</div></div>
+    <div class="screen results card">
+      <p class="cd-head">KRONO <span class="n">#${card.puzzleNumber}</span>${DEV ? '<span class="n"> · TEST</span>' : ''}${beatToday ? '<span class="n"> · ★ BEST</span>' : ''}</p>
+      <div class="cd-body">
+        <div class="cd-total">
+          <p class="cd-num">${card.totalSeconds.toFixed(2)}</p>
+          <p class="cd-unit">SECONDS OFF</p>
+        </div>
+        <div class="cd-plot" aria-hidden="true">
+          <span class="cd-centre"></span>
+          ${card.rows.map(cardRowHtml).join('')}
+        </div>
+        <p class="sr-only">${escapeHtml(shareSummary(shareInput, { rateNoun: 'seconds off', includeVerdict: false }))}</p>
       </div>
-      <p class="bias">${bias}</p>
       <div class="btnrow">
         ${locked
           ? `<div class="btn locked" id="next">
@@ -755,10 +889,11 @@ function showResults() {
              </div>`
           : `<button class="btn ring" id="again" autofocus>${DEV ? 'NEW TEST' : 'PLAY AGAIN'}</button>`}
         <button class="btn alt" id="share"${locked ? ' autofocus' : ''}>SHARE</button>
+        <!-- Account CTA lands here, in the primary slot, once there is a backend
+             behind it. The row is already sized for it. -->
       </div>
       <div class="links">
         ${DEV ? '' : '<button class="testlink" id="test">Test challenge →</button>'}
-        <button class="testlink" id="reset">Reset stats</button>
       </div>
     </div>
   `, { bg: 'var(--ink)' });
@@ -769,19 +904,9 @@ function showResults() {
     if (DEV) gotoTestChallenge(); else startPlay();
   });
   if (locked) startCountdown();
-  $app().querySelector('#share').addEventListener('click', async () => {
-    feedback.tap();
-    const text = buildShareText({ puzzleNumber: challenge.puzzleNumber, totalMs, bands, streak, biasString: bias });
-    const ok = await copyToClipboard(text);
-    toast(ok ? 'COPIED' : 'COPY FAILED');
-  });
+  $app().querySelector('#share').addEventListener('click', () => { feedback.tap(); doShare(); });
   const testBtn = $app().querySelector('#test');
   if (testBtn) testBtn.addEventListener('click', () => { feedback.tap(); gotoTestChallenge(); });
-  $app().querySelector('#reset').addEventListener('click', () => {
-    feedback.tap();
-    localStorage.removeItem('chrono');
-    location.href = location.pathname; // fresh, back to a clean landing
-  });
 }
 
 // Ticks the "next puzzle in" clock on a locked results screen. When the UTC date

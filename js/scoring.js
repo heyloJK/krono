@@ -26,11 +26,12 @@ export function glyphForBand(name) {
   return (BAND_BY_NAME[name] || BAND_BY_NAME.red).glyph;
 }
 
-// Score a standard round (1–4). `actualMs` is what the player produced (a held
+// Score a standard round. `actualMs` is what the player produced (a held
 // duration or an estimate); `targetMs` is the truth being compared against.
-export function scoreRound(actualMs, targetMs) {
+// `capMs` is per-round so round 4 can run looser (see scoreDrift).
+export function scoreRound(actualMs, targetMs, { capMs = CAP_MS } = {}) {
   const rawErrorMs = Math.abs(actualMs - targetMs);
-  const cappedErrorMs = Math.min(rawErrorMs, CAP_MS);
+  const cappedErrorMs = Math.min(rawErrorMs, capMs);
   const signedMs = actualMs - targetMs; // + = over/late, - = under/early
   const relError = rawErrorMs / (targetMs + 600);
   return {
@@ -91,56 +92,55 @@ export function scoreRound5(outcome, opts = {}) {
   };
 }
 
-// Round 4 (reaction / F1 start lights) uses its own fixed-cost tiers instead of
-// the shared BANDS — each tier adds a FLAT number of centiseconds to the day
-// total, not the raw reaction time itself. Tiers are in DISPLAYED centiseconds
-// (cs = ms/10), best-first, upper bound inclusive.
-export const REACTION_BANDS = [
-  { name: 'perfect', glyph: '💎', label: 'Perfect', maxCs: 24, addCs: 0 },
-  { name: 'green', glyph: '🟩', label: 'Green', maxCs: 29, addCs: 10 },
-  { name: 'yellow', glyph: '🟨', label: 'Yellow', maxCs: 34, addCs: 20 },
-  { name: 'red', glyph: '🟥', label: 'Red', maxCs: Infinity, addCs: 30 },
-];
-export const REACTION_MISS_CS = 50; // jump start or no reaction at all
+// Round 4 (Drift) — interval production against a deliberately miscalibrated
+// tick reference. Scored exactly like the other production rounds (|actual −
+// target|, same bands) with ONE difference: a looser cap.
+//
+// The cap has to be looser because the day's false reference drags the entire
+// player base the same way. Correlated error is the expected outcome here, not
+// an outlier to be clipped — at the blind rounds' 1.50s cap a whole cohort
+// would pile up on the ceiling and the round would stop discriminating. This is
+// a calibrated guess; retune it against real data, and nothing else, so scores
+// stay comparable across the change.
+export const DRIFT_CAP_MS = 3000;
 
-export function bandForReactionMs(reactionMs) {
-  const cs = Math.round(reactionMs / 10);
-  return REACTION_BANDS.find((b) => cs <= b.maxCs) || REACTION_BANDS[REACTION_BANDS.length - 1];
+export function scoreDrift(actualMs, targetMs) {
+  const base = scoreRound(actualMs, targetMs, { capMs: DRIFT_CAP_MS });
+  return {
+    ...base,
+    // Kept out of the lifetime early/late aggregate. This round's signed error
+    // is deliberately pushed by the day's reference, so it measures the bias,
+    // not the player's own clock — folding it in would corrupt the readout.
+    biasEligible: false,
+  };
 }
 
-// Round 4 (reaction / F1 start lights). The player reacts when the lights go out;
-// `reactionMs` is their reaction time (time after lights-out). A jump start
-// (reacting before lights-out) or never reacting at all is a miss: flat
-// REACTION_MISS_CS, no band credit. Reaction is a different skill from interval
-// estimation, so it is flagged biasEligible:false and kept out of the
-// timing-bias aggregate.
-export function scoreReaction(reactionMs, { jumpStart = false, noReaction = false } = {}) {
-  if (jumpStart || noReaction) {
-    const scoreMs = REACTION_MISS_CS * 10;
-    return {
-      jumpStart, noReaction,
-      scoreMs,
-      band: 'off',
-      rawErrorMs: null, cappedErrorMs: scoreMs,
-      signedMs: null, relError: null, biasEligible: false,
-      reactionMs: null, targetMs: 0, actualMs: null,
-    };
-  }
-  const band = bandForReactionMs(reactionMs);
-  const scoreMs = band.addCs * 10;
-  return {
-    jumpStart: false, noReaction: false,
-    scoreMs,
-    band: band.name,
-    rawErrorMs: reactionMs,
-    cappedErrorMs: scoreMs,
-    signedMs: reactionMs,          // always "late" — logged, but not bias-eligible
-    relError: reactionMs / 600,
-    biasEligible: false,
-    reactionMs,
-    targetMs: 0,
-    actualMs: reactionMs,
-  };
+// Which way the day's reference pulls: a fast reference (short IOIs) makes the
+// interval feel longer than it is, so the player marks EARLY (negative signed
+// error); a slow reference pulls late. Returns -1 or +1.
+export function driftPull(biasDir) {
+  return biasDir === 'fast' ? -1 : 1;
+}
+
+// Did the player go the way the reference pushed? Sign agreement, nothing more.
+// A dead-0 mark followed nothing.
+export function followedDrift(signedMs, biasDir) {
+  return signedMs != null && signedMs !== 0 && Math.sign(signedMs) === driftPull(biasDir);
+}
+
+// Day tiers. Derived from the STORED score — the capped, authoritative total —
+// never from the share block's displayed headline, which is rounded for
+// readability. Placeholder bands: they want real distributions before being
+// pinned, which is why they live here as one named table rather than inline.
+export const TIER_BANDS = [
+  { name: 'OBSERVATORY', underMs: 400 },
+  { name: 'MASTER CHRONOMETER', underMs: 800 },
+  { name: 'CHRONOMETER', underMs: 1600 },
+  { name: 'REGULATED', underMs: Infinity },
+];
+
+export function tierForTotalMs(totalMs) {
+  return (TIER_BANDS.find((b) => totalMs < b.underMs) || TIER_BANDS[TIER_BANDS.length - 1]).name;
 }
 
 // Sum of per-round score contributions → day total (ms).

@@ -4,3 +4,12 @@
 # redistribute — the manifest is tracked, the copies are not.
 .agents/skills/
 .claude/skills/
+
+# npm. Only needed for the share Worker's OG image rendering; the game itself
+# still has no build step.
+node_modules/
+
+# wrangler's local state. It lives inside the assets directory (the repo root),
+# so it must be ignored there too or `wrangler dev` watches its own writes and
+# reloads forever.
+.wrangler/

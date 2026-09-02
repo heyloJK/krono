@@ -2,11 +2,12 @@
    Each screen is a full-bleed colour field. Huge condensed numerals (Anton),
    clean labels (Archivo), white pill buttons. Content is stripped to the bone.
 
-   RULE: no LOOPING motion on a measurement screen — no pulses or spinners; any
-   loop is a metronome. Finite one-shot sequences are allowed: the reaction lights
-   fill once and go dark instantly (no transition softens the GO edge). One-shot
-   entrances live only where timing is over: landing, the per-round result, and the
-   final results (see "Entrances"). */
+   RULE: nothing animates on a repeating cycle — no pulses, spinners or looping
+   keyframes; any loop is a metronome and compromises the game. This is a
+   correctness requirement, not a style preference. Round 4's tick marker flashes
+   for a single frame at jittered, non-periodic intervals (see js/daily.js), with
+   no transition to soften the onset. One-shot entrances live only where timing is
+   over: landing, the per-round result, and the final results (see "Entrances"). */
 
 :root {
   --blue:   #3121FF;   /* round 1 + the Perfect screen */
@@ -279,26 +280,21 @@ html, body {
 .guess input:focus-visible { outline: 4px solid rgba(255,255,255,0.6); outline-offset: 4px; }
 .fmthint { font-family: var(--sans); font-weight: 600; font-size: 13px; opacity: 0.7; margin: 0; }
 
-/* --- Round 4 — reaction lights --------------------------------------------
-   Five lights fill one at a time (a one-shot pop, not a loop — see the file
-   header). Going dark is the measurement edge: an instant class swap with NO
-   transition, so nothing softens or telegraphs the moment. */
-.lights { display: flex; gap: clamp(12px, 3vw, 20px); justify-content: center; }
-.light {
-  width: clamp(34px, 9vw, 54px); height: clamp(34px, 9vw, 54px);
-  border-radius: 50%;
-  background: rgba(255,255,255,0.12);
-  border: 3px solid rgba(255,255,255,0.4);
-}
-.light.on {
-  background: var(--red);
-  border-color: var(--red);
-  box-shadow: 0 0 22px 4px rgba(255,74,33,0.55);
-}
-.lights.out .light { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.4); box-shadow: none; }
-@media (prefers-reduced-motion: no-preference) {
-  .light.on { animation: pop 200ms var(--ease-out) both; }
-}
+/* --- Round 4 — Drift ticks -----------------------------------------------
+   The visual half of the tick is the ellipsis of "Running…": three dots held
+   dim, one lighting per tick. It is an instant class swap with NO transition,
+   NO keyframes, no easing — a fade would smear the onset, and anything with a
+   period would be a metronome, which is precisely what this round is built to
+   deny the player.
+
+   Only opacity changes, so the dots hold their space and a tick can never
+   reflow the line. They light one at a time and go straight back to dim rather
+   than filling up and staying: once the ticks stop at the blackout the screen
+   looks exactly as it did before the first one, and never becomes a record of
+   how far the train got. */
+.dots { white-space: nowrap; }
+.dots > span { opacity: 0.2; }
+.dots > span.lit { opacity: 1; }
 
 /* --- Round 5 options ----------------------------------------------------- */
 .options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: 100%; max-width: 460px; }
@@ -328,28 +324,135 @@ html, body {
 
 /* --- Results (must fit one viewport, no scroll) -------------------------- */
 /* Sizes are viewport-height aware so the whole card fits without scrolling. */
-.results { gap: clamp(6px, 1.7vh, 18px); max-height: 100dvh; justify-content: center; }
-.results .total {
-  font-size: clamp(48px, 13vh, 100px);
-  color: var(--lime);
-  display: inline-flex; align-items: baseline; gap: 10px; justify-content: center;
+/* --- The score card ------------------------------------------------------
+   Two columns on a wide viewport: the day's total on the left, one axis row per
+   round on the right. This is the artifact SHARE sends (the OG image renders the
+   same model — see js/scorecard.js), so it is laid out as something to post, not
+   as a diagnostic readout. */
+.results.card {
+  /* Wide, but the gap between the halves is now an explicit column gap rather
+     than slack in a fractional column — which is what stranded them at opposite
+     edges before. */
+  max-width: 1100px;
+  gap: clamp(20px, 4vh, 44px);
+  align-items: stretch;
+  text-align: left;
 }
-.results .total .off {
+/* Same scale as .kicker and .rk — this is a screen label, not a headline; the
+   total below it is the only thing on this screen that should shout. Centred at
+   every width and set apart from the body, so it reads as the page's title in
+   the same way .rk does on the round screens, rather than as the card's first
+   line. */
+.cd-head {
   font-family: var(--sans); font-weight: 800;
-  font-size: clamp(12px, 2.2vh, 18px); color: var(--white); opacity: 0.55;
+  font-size: clamp(13px, 1.5vw, 16px); letter-spacing: 0.24em;
+  margin: 0 0 clamp(16px, 5vh, 56px);
+  text-align: center;
 }
-.grid-glyphs { font-size: clamp(26px, 5.2vh, 52px); letter-spacing: 6px; line-height: 1; }
-.breakdown { width: 100%; max-width: 460px; border-collapse: collapse; font-family: var(--sans); font-size: clamp(12px, 1.7vh, 15px); }
-.breakdown td { padding: clamp(4px, 1vh, 10px) 6px; border-bottom: 1px solid rgba(255,255,255,0.14); text-align: left; font-weight: 600; }
-.breakdown td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 800; }
-.breakdown td .g { font-size: 1.1em; }
-.stats { display: flex; gap: clamp(20px, 6vw, 34px); justify-content: center; flex-wrap: wrap; }
-.stat .k { font-family: var(--sans); font-weight: 700; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.6; }
-.stat .v { font-family: var(--display); font-size: clamp(24px, 4.6vh, 40px); line-height: 1; margin-top: 4px; }
-.bias { font-family: var(--sans); font-weight: 700; font-size: clamp(13px, 1.8vh, 15px); opacity: 0.8; margin: 0; }
+.cd-head .n { color: rgba(255,255,255,0.42); }
+/* The card body is left-aligned, but the controls stay centred under the whole
+   card as drawn, not under the left column. */
+.results.card .btnrow, .results.card .links { margin-inline: auto; }
+/* The CTAs are a separate beat from the card, so they get more air than the
+   card's own internal rhythm gives them. */
+.results.card .btnrow { margin-top: clamp(14px, 4vh, 40px); }
+
+.cd-body {
+  /* The total column is sized to its CONTENT, not to a fraction of the row —
+     a fractional column leaves the short left-hand text floating against the
+     far edge with a gap the eye reads as a break between two unrelated things. */
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: center; gap: clamp(24px, 7vw, 120px);
+}
+.cd-total { min-width: 0; }
+.cd-num {
+  font-family: var(--display); font-weight: 400;
+  font-size: clamp(72px, 12vw, 150px); line-height: 0.82;
+  margin: 0; letter-spacing: 0.01em; font-feature-settings: "tnum" 1;
+}
+.cd-unit {
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(12px, 1.5vw, 17px); letter-spacing: 0.22em;
+  margin: clamp(10px, 1.6vh, 18px) 0 0;
+}
+
+/* label | axis track | value, with ONE centre rule crossing every row.
+   The rule is NOT a grid item: an explicitly-placed item still occupies its
+   cells, so it would push the auto-placed label/track/value out of column 2 and
+   cascade every row by one. It is an absolute overlay instead, which needs the
+   track's midpoint to be expressible in CSS — hence the fixed side columns. The
+   gaps cancel out of that midpoint, leaving:
+       track centre = 50% + (label width − value width) / 2  */
+.cd-plot {
+  --cd-label-w: clamp(72px, 10vw, 108px);
+  --cd-value-w: clamp(52px, 7vw, 76px);
+  --cd-overhang: clamp(16px, 3.2vh, 34px);
+  --cd-dot: clamp(14px, 1.7vw, 22px);
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--cd-label-w) minmax(0, 1fr) var(--cd-value-w);
+  align-items: center;
+  column-gap: clamp(14px, 2.4vw, 34px);
+  row-gap: clamp(16px, 5vh, 46px);
+  text-align: left;
+}
+.cd-centre {
+  position: absolute;
+  left: calc(50% + (var(--cd-label-w) - var(--cd-value-w)) / 2);
+  top: calc(-1 * var(--cd-overhang));
+  bottom: calc(-1 * var(--cd-overhang));
+  width: 1px; background: rgba(255,255,255,0.5);
+}
+.cd-label {
+  font-family: var(--sans); font-weight: 800;
+  font-size: clamp(10px, 1.15vw, 14px); letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.72); white-space: nowrap;
+}
+.cd-track { position: relative; height: 1px; background: rgba(255,255,255,0.28); }
+/* Dots are placed, never transitioned: no motion on this screen has a period,
+   and an animated dot sliding into position would be one. */
+.cd-dot, .cd-perfect {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  line-height: 1;
+}
+.cd-dot {
+  width: var(--cd-dot); height: var(--cd-dot);
+  border-radius: 50%;
+}
+.cd-perfect { font-size: calc(var(--cd-dot) * 1.15); }
+/* A pegged round keeps its dot at the extreme of the axis and adds a hard stop
+   just past it, so a clipped value cannot read as a merely-large one (the ◂/▸
+   of the text block). A drawn bar, not a chevron character: the OG renderer has
+   only the font buffers it is handed and would draw the glyph blank. */
+.cd-peg {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 3px; height: var(--cd-dot);
+}
+.cd-peg-late  { left: calc(100% + var(--cd-dot) / 2 + 5px); }
+.cd-peg-early { right: calc(100% + var(--cd-dot) / 2 + 5px); }
+.cd-value {
+  font-family: var(--sans); font-weight: 700;
+  font-size: clamp(12px, 1.35vw, 17px); letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  min-width: 5.5ch; text-align: right;
+}
+
+/* Narrow: the total stacks above the plot and both go full width. */
+@media (max-width: 880px) {
+  .cd-body { grid-template-columns: minmax(0, 1fr); gap: clamp(20px, 4vh, 32px); }
+  .cd-total { text-align: center; }
+  .results.card { text-align: center; }
+  .cd-head { text-align: center; }
+}
+/* Visible to screen readers only: the ASCII block is noise when read aloud, so
+   the prose summary carries the same content beside it. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
 .btnrow { display: flex; gap: 18px; width: 100%; max-width: 460px; }
 .btnrow .btn { flex: 1; min-width: 0; padding: clamp(12px, 1.8vh, 16px) 8px; font-size: clamp(18px, 2.6vh, 26px); }
-.btn.alt { background: transparent; color: var(--white); border: 2px solid rgba(255,255,255,0.4); }
+.btn.alt { background: transparent; color: var(--white); border: 2px solid rgba(255,255,255,0.78); }
 /* Daily lock: today's puzzle is spent. Occupies PLAY AGAIN's slot as a static,
    non-interactive plate — dashed border reads "unavailable" without a tooltip.
    The clock ticks (results screen only; nothing here is being timed). */
@@ -416,22 +519,23 @@ html, body {
 
 /* --- Entrances ----------------------------------------------------------- *
    These reveals are ONE-SHOT and fire on mount. The hard rule stands: a
-   MEASUREMENT screen (the hold rounds, the "Running" guesses, round 5's
-   equation/guess) never animates — a period there would hand the player a
-   reference. Motion only runs where timing is over: the landing, the per-round
-   result, and the final results. The lone loop — the Perfect sunburst — is a
-   result screen, so a spin there leaks nothing. */
+   MEASUREMENT screen (the hold rounds, the "Running" guesses, round 4's ticks,
+   round 5's equation/guess) never animates — a period there would hand the
+   player a reference. Motion only runs where timing is over: the landing, the
+   per-round result, and the final results. Nothing anywhere repeats: there is no
+   `infinite` in this file, by rule. */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes pop  { from { opacity: 0; transform: scale(0.92);      } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-/* Perfect screen: the burst rays rotate slowly (a result screen — no timing left
-   to leak). The text is static. */
-@keyframes spin { from { transform: translate(-50%,-50%) rotate(0deg); }
-                  to   { transform: translate(-50%,-50%) rotate(360deg); } }
+/* Perfect screen: the burst swings into place once and stops. It used to spin on
+   an infinite loop; a loop is a period, and the no-repeating-motion rule has no
+   screen-by-screen exemptions. The text is static. */
+@keyframes burst-in { from { transform: translate(-50%,-50%) rotate(-14deg); }
+                      to   { transform: translate(-50%,-50%) rotate(0deg); } }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Perfect: the burst fades in and rotates slowly. */
-  .perfect-burst { animation: fade 600ms ease-out both, spin 50s linear infinite; }
+  /* Perfect: the burst fades in and settles — once, then it holds. */
+  .perfect-burst { animation: fade 600ms ease-out both, burst-in 1100ms var(--ease-out) both; }
 
   /* Landing: the wordmark and its supporting lines rise in, gently staggered. */
   .enter > * { animation: rise 460ms var(--ease-out) both; }
@@ -446,17 +550,23 @@ html, body {
   .reveal .cue  { animation: rise 380ms var(--ease-out) both; }
   .reveal .hero { animation: pop  460ms var(--ease-out) both; animation-delay: 70ms; }
 
-  /* Results: the score lands first (pop), then the card assembles under it. */
+  /* Results: the card assembles top-down, then the rows land one after another.
+     All one-shot — timing is over on this screen, and nothing here repeats. */
   .results > * { animation: rise 500ms var(--ease-out) both; }
   .results > *:nth-child(1) { animation-delay: 20ms; }
   .results > *:nth-child(2) { animation-delay: 70ms; }
   .results > *:nth-child(3) { animation-delay: 115ms; }
   .results > *:nth-child(4) { animation-delay: 160ms; }
-  .results > *:nth-child(5) { animation-delay: 205ms; }
-  .results > *:nth-child(6) { animation-delay: 250ms; }
-  .results > *:nth-child(7) { animation-delay: 295ms; }
-  .results > *:nth-child(8) { animation-delay: 340ms; }
-  .results .total { animation: pop 560ms var(--ease-out) both; animation-delay: 40ms; }
+  .cd-num { animation: pop 560ms var(--ease-out) both; animation-delay: 40ms; }
+  /* Each row is three children (label, track, value) and the centre rule is the
+     first, so a row's delay is an explicit span of three — a 3n+ pattern would
+     stagger the COLUMNS instead, and 3n+5 is the same set as 3n+2. */
+  .cd-plot > :not(.cd-centre) { animation: rise 420ms var(--ease-out) both; }
+  .cd-plot > :nth-child(n + 2):nth-child(-n + 4)   { animation-delay: 130ms; }
+  .cd-plot > :nth-child(n + 5):nth-child(-n + 7)   { animation-delay: 180ms; }
+  .cd-plot > :nth-child(n + 8):nth-child(-n + 10)  { animation-delay: 230ms; }
+  .cd-plot > :nth-child(n + 11):nth-child(-n + 13) { animation-delay: 280ms; }
+  .cd-plot > :nth-child(n + 14):nth-child(-n + 16) { animation-delay: 330ms; }
 }
 
 /* Reduced motion: keep the reveal as comprehension, drop the movement. */

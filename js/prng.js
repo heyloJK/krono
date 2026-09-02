@@ -59,3 +59,11 @@ export function shuffle(rng, arr) {
   }
   return a;
 }
+
+// Standard-normal sample (mean 0, SD 1) via Box–Muller. Consumes exactly two
+// draws from `rng`, so a caller that needs a stable draw order can count on it.
+export function gaussian(rng) {
+  const u1 = 1 - rng();  // nudged off zero so log() stays finite
+  const u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}

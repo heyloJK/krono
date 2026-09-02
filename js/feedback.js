@@ -1,10 +1,11 @@
 // feedback.js — sound + haptics. No assets, no network: every tone is synthesized
 // with the Web Audio API so the site stays a static, dependency-free bundle.
 // Every cue here is a SHORT one-shot (<250ms) tied to a discrete event (a press,
-// a reveal). None of it loops or ticks during a measurement phase — that would
-// be an audible metronome, exactly what the visual "hard constraint" forbids
-// (see the header of styles.css). The reaction round's per-light tick is safe
-// because its pace is fixed and public, never the secret being tested.
+// a reveal). Nothing here is periodic — a repeating cycle is an audible
+// metronome, exactly what the hard constraint forbids (see the header of
+// styles.css). Round 4's tick() is the one cue that fires repeatedly, and it is
+// deliberately NOT periodic: its inter-onset intervals are jittered per tick and
+// the train stops partway through the round (see js/daily.js).
 
 let muted = false;
 let ctx = null;
@@ -73,8 +74,10 @@ export const feedback = {
   tap()        { tone({ freq: 720, duration: 0.045, type: 'sine', gain: 0.10 }); buzz(10); },
   begin()      { tone({ freq: 480, duration: 0.09, type: 'sine', gain: 0.14 }); buzz(15); },
   submit()     { tone({ freq: 560, duration: 0.06, type: 'sine', gain: 0.12 }); buzz(10); },
-  lightOn()    { tone({ freq: 900, duration: 0.03, type: 'square', gain: 0.05 }); }, // no buzz — 5 in a row would be noise
-  lightsOut()  { tone({ freq: 1200, duration: 0.09, type: 'sine', gain: 0.18 }); buzz(20); },
+  // Round 4's drift tick. Deliberately tiny and dry: a hard onset the ear can
+  // place, with no tail to smear the edge. No buzz — a haptic on every tick
+  // would be a second, coarser reference channel.
+  tick()       { tone({ freq: 1050, duration: 0.025, type: 'square', gain: 0.07 }); },
   miss()       { tone({ freq: 180, freqEnd: 90, duration: 0.22, type: 'sawtooth', gain: 0.16 }); buzz([30, 40, 30]); },
   result(band) {
     tone({ ...(RESULT_TONE[band] || RESULT_TONE.red), duration: 0.18, gain: 0.14 });

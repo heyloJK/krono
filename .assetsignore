@@ -8,3 +8,9 @@ serve.py
 skills-lock.json
 .claude/
 .agents/
+package.json
+package-lock.json
+node_modules/
+.wrangler/
+worker/
+test/
